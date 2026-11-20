@@ -6,9 +6,9 @@ pub const LONG_REPORT_ID: u8 = 0x11;
 /// Length in bytes of a long HID++ report, report ID included.
 pub const LONG_REPORT_LEN: usize = 20;
 
-/// Software ID put in every request we send. Other values are already used by
-/// the device firmware or by other Logitech tools, so responses carrying ours
-/// can only be answers to our own requests.
+/// Software ID put in every request we send. A response is matched on device
+/// index, feature index, function and this ID; values already taken by the
+/// device firmware and by other HID++ software are avoided.
 pub const SOFTWARE_ID: u8 = 0x0E;
 
 const PARAMS_LEN: usize = LONG_REPORT_LEN - 4;
@@ -16,11 +16,11 @@ const PARAMS_LEN: usize = LONG_REPORT_LEN - 4;
 /// A long HID++ 2.0 report: request, response or notification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LongFrame {
-    pub device_index: u8,
-    pub feature_index: u8,
-    pub function: u8,
-    pub software_id: u8,
-    pub params: [u8; PARAMS_LEN],
+    device_index: u8,
+    feature_index: u8,
+    function: u8,
+    software_id: u8,
+    params: [u8; PARAMS_LEN],
 }
 
 /// Why bytes could not be turned into a frame, or a frame could not be built.
@@ -98,13 +98,35 @@ impl LongFrame {
         })
     }
 
+    pub fn device_index(&self) -> u8 {
+        self.device_index
+    }
+
+    pub fn feature_index(&self) -> u8 {
+        self.feature_index
+    }
+
+    /// Function number, 0 to 15.
+    pub fn function(&self) -> u8 {
+        self.function
+    }
+
+    /// Software ID, 0 to 15; 0 marks a notification sent by the device.
+    pub fn software_id(&self) -> u8 {
+        self.software_id
+    }
+
+    pub fn params(&self) -> &[u8; PARAMS_LEN] {
+        &self.params
+    }
+
     /// Bytes to write to the HID transport, report ID first.
     pub fn to_bytes(&self) -> [u8; LONG_REPORT_LEN] {
         let mut bytes = [0; LONG_REPORT_LEN];
         bytes[0] = LONG_REPORT_ID;
         bytes[1] = self.device_index;
         bytes[2] = self.feature_index;
-        bytes[3] = (self.function << 4) | (self.software_id & 0x0F);
+        bytes[3] = (self.function << 4) | self.software_id;
         bytes[4..].copy_from_slice(&self.params);
         bytes
     }

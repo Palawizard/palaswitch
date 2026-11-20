@@ -42,11 +42,11 @@ fn get_current_profile_response_carries_profile_one() {
 
     assert_eq!(
         (
-            response.device_index,
-            response.feature_index,
-            response.function,
-            response.software_id,
-            &response.params[..2],
+            response.device_index(),
+            response.feature_index(),
+            response.function(),
+            response.software_id(),
+            &response.params()[..2],
         ),
         (0x01, 0x0B, 4, SOFTWARE_ID, &[0x00, 0x01][..]),
     );
@@ -74,5 +74,24 @@ fn request_rejects_function_wider_than_four_bits() {
     assert_eq!(
         LongFrame::request(0x01, 0x0B, 0x10, &[]),
         Err(FrameError::FunctionOutOfRange(0x10))
+    );
+}
+
+#[test]
+fn parse_rejects_short_report_id() {
+    let mut bytes = captured(1);
+    bytes[0] = 0x10;
+
+    assert_eq!(
+        LongFrame::parse(&bytes),
+        Err(FrameError::WrongReportId(0x10))
+    );
+}
+
+#[test]
+fn request_rejects_more_than_sixteen_params() {
+    assert_eq!(
+        LongFrame::request(0x01, 0x0B, 4, &[0; 17]),
+        Err(FrameError::TooManyParams(17))
     );
 }

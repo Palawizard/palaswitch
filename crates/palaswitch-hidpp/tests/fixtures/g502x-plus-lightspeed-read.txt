@@ -1,6 +1,7 @@
 # G502 X PLUS through the LIGHTSPEED receiver (USB 046D:C547, device index 1),
 # long HID++ collection (usage page 0xFF00, usage 0x0002), captured 2026-11-20.
-# Read-only requests with software ID 0x0E.
+# Read-only requests with software ID 0x0E, sent and read with hidapi 2.6.7
+# by a throwaway program; each response was the first frame read back.
 # root getFeature(0x8100)
 TX 11 01 00 0E 81 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 RX 11 01 00 0E 0B 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
