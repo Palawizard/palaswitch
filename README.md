@@ -48,12 +48,13 @@ The workspace has four crates:
 
 ```powershell
 cargo run --release -p palaswitch-cli -- list         # mice, profiles, active profile
+cargo run --release -p palaswitch-cli -- get          # active profile
 cargo run --release -p palaswitch-cli -- set 2        # make profile 2 active
 cargo run --release -p palaswitch-cli -- sniff 10     # print every HID++ report for 10 s
 cargo run --release -p palaswitch-cli -- stress 200   # 200 switches between enabled profiles
 ```
 
-Add `--pid C095` to pick a device by USB product ID, and `-v` for debug logs. `stress` puts the mouse back on the profile it started on.
+Add `--pid C095` to pick a device by USB product ID, and `-v` for debug logs. `stress` puts the mouse back on the profile it started on, also when stopped with Ctrl+C.
 
 ## License
 

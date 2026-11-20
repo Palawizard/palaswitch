@@ -10,6 +10,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+ctrlc.workspace = true
 palaswitch-device.workspace = true
 palaswitch-hidpp.workspace = true
 tracing.workspace = true

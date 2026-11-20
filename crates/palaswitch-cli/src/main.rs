@@ -1,11 +1,13 @@
 //! Command line tool to try the HID++ layer on a connected mouse.
 
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use palaswitch_device::{Connection, HidApi, HidTransport, Mouse, find_mice, hidpp_interfaces};
-use palaswitch_hidpp::Transport;
-use palaswitch_hidpp::features::Profile;
+use palaswitch_hidpp::features::{Mode, Profile};
+use palaswitch_hidpp::{Error, Transport};
 
 const USAGE: &str = "usage: palaswitch-cli [-v] [--pid <hex>] <command>
 
@@ -119,37 +121,55 @@ fn list(api: &HidApi) -> Result<(), String> {
     }
     for mut mouse in mice {
         let info = mouse.info();
-        let mode = mouse.mode().map_err(|error| error.to_string())?;
-        let current = mouse.current_profile().map_err(|error| error.to_string())?;
-        let profiles = mouse.profiles().map_err(|error| error.to_string())?;
         println!(
-            "{} ({:04X}, {}): {} profiles, {} in ROM, mode {mode:?}",
+            "{} ({:04X}, {}): {} profiles, {} in ROM",
             mouse.name,
             mouse.product_id,
             describe_connection(mouse.connection),
             info.profile_count,
             info.rom_profile_count
         );
-        for profile in profiles {
-            println!(
-                "  profile {}{}{}",
-                profile.number(),
-                if profile.enabled { "" } else { " (disabled)" },
-                if profile.sector == current {
-                    " (active)"
-                } else {
-                    ""
-                }
-            );
+        if let Err(error) = print_profiles(&mut mouse) {
+            println!("  could not read the profiles: {error}");
         }
+    }
+    Ok(())
+}
+
+fn print_profiles(mouse: &mut Mouse) -> Result<(), Error> {
+    let mode = mouse.mode()?;
+    let current = mouse.current_profile()?;
+    println!("  mode {mode:?}");
+    for profile in mouse.profiles()? {
+        println!(
+            "  profile {}{}{}{}",
+            profile.number(),
+            if profile.is_rom() { " (factory)" } else { "" },
+            if profile.enabled { "" } else { " (disabled)" },
+            if profile.sector == current {
+                " (active)"
+            } else {
+                ""
+            }
+        );
     }
     Ok(())
 }
 
 fn set(api: &HidApi, product_id: Option<u16>, number: u16) -> Result<(), String> {
     let mut mouse = first_mouse(api, product_id)?;
+    let profiles = mouse.profiles().map_err(|error| error.to_string())?;
+    let profile = profiles
+        .iter()
+        .find(|profile| profile.number() == number)
+        .ok_or_else(|| format!("{} has no profile {number}", mouse.name))?;
+    if !profile.enabled {
+        return Err(format!("profile {number} is disabled on {}", mouse.name));
+    }
     let start = Instant::now();
-    mouse.switch_to(number).map_err(|error| error.to_string())?;
+    mouse
+        .switch_to(profile.sector)
+        .map_err(|error| error.to_string())?;
     println!(
         "profile {number} active ({} ms)",
         start.elapsed().as_millis()
@@ -178,7 +198,14 @@ fn sniff(api: &HidApi, product_id: Option<u16>, secs: u64) -> Result<(), String>
     Ok(())
 }
 
+const RESTORE_ATTEMPTS: usize = 3;
+
 fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), String> {
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&interrupted);
+    ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))
+        .map_err(|error| format!("could not catch Ctrl+C: {error}"))?;
+
     let mut mouse = first_mouse(api, product_id)?;
     let enabled: Vec<Profile> = mouse
         .profiles()
@@ -189,22 +216,41 @@ fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), Str
     if enabled.len() < 2 {
         return Err("at least two enabled profiles are needed".to_owned());
     }
+    let mode = mouse.mode().map_err(|error| error.to_string())?;
+    if mode != Mode::Onboard {
+        println!(
+            "note: the mouse was in mode {mode:?}; switching profiles puts it in onboard mode"
+        );
+    }
     let initial = mouse.current_profile().map_err(|error| error.to_string())?;
+    let start_at = enabled
+        .iter()
+        .position(|profile| profile.sector == initial)
+        .map_or(0, |position| position + 1);
+
     let mut durations = Vec::with_capacity(count);
     let mut failures = Vec::new();
     for round in 0..count {
-        let target = enabled[round % enabled.len()].sector;
+        if interrupted.load(Ordering::SeqCst) {
+            println!("interrupted after {round} switches");
+            break;
+        }
+        let target = enabled[(start_at + round) % enabled.len()];
         let start = Instant::now();
-        match mouse.switch_to(target) {
+        match mouse.switch_to(target.sector) {
             Ok(()) => durations.push(start.elapsed()),
+            Err(error @ Error::Transport(_)) => {
+                failures.push(format!("switch {}: {error}", round + 1));
+                break;
+            }
             Err(error) => failures.push(format!(
                 "switch {} to profile {}: {error}",
                 round + 1,
-                target & 0xFF
+                target.number()
             )),
         }
     }
-    let restored = mouse.switch_to(initial);
+
     durations.sort();
     let median = durations
         .get(durations.len() / 2)
@@ -222,11 +268,30 @@ fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), Str
     for failure in &failures {
         println!("  {failure}");
     }
-    restored.map_err(|error| format!("could not restore profile {}: {error}", initial & 0xFF))?;
-    println!("restored profile {}", initial & 0xFF);
+    restore(&mut mouse, initial)?;
     if failures.is_empty() {
         Ok(())
     } else {
         Err(format!("{} switches failed", failures.len()))
     }
+}
+
+fn restore(mouse: &mut Mouse, sector: u16) -> Result<(), String> {
+    let mut last_error = None;
+    for _ in 0..RESTORE_ATTEMPTS {
+        match mouse.switch_to(sector) {
+            Ok(()) => {
+                println!("restored profile {}", sector & 0xFF);
+                return Ok(());
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(format!(
+        "could not restore profile {}: {}",
+        sector & 0xFF,
+        last_error
+            .map(|error| error.to_string())
+            .unwrap_or_default()
+    ))
 }

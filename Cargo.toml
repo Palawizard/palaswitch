@@ -10,6 +10,7 @@ license = "MIT"
 repository = "https://github.com/Palawizard/palaswitch"
 
 [workspace.dependencies]
+ctrlc = "3.5.3"
 embed-manifest = "1.5.1"
 hidapi = "2.6.7"
 palaswitch-device = { path = "crates/palaswitch-device" }
