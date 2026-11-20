@@ -8,6 +8,11 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/Palawizard/palaswitch"
 
+[workspace.dependencies]
+embed-manifest = "1.5.1"
+tray-icon = "0.26.1"
+windows = "0.62.2"
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 

@@ -9,3 +9,8 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+tray-icon.workspace = true
+windows = { workspace = true, features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Globalization"] }
+
+[build-dependencies]
+embed-manifest.workspace = true
