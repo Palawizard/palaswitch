@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = ["crates/palaswitch", "crates/palaswitch-cli", "crates/palaswitch-hidpp"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/Palawizard/palaswitch"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+undocumented_unsafe_blocks = "deny"
