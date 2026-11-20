@@ -71,3 +71,16 @@ fn receiver_error_is_not_read_as_a_long_frame() {
         InputReport::Error { .. }
     ));
 }
+
+#[test]
+fn receiver_rejects_hidpp20_ping_at_its_own_index() {
+    assert_eq!(
+        reply((ERRORS, 6), (ERRORS, 7)),
+        Reply::Failed(DeviceError::Hidpp10(0x01))
+    );
+}
+
+#[test]
+fn receiver_rejecting_ping_does_not_mean_unreachable() {
+    assert!(!DeviceError::Hidpp10(0x01).is_unreachable());
+}
