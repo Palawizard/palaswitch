@@ -54,7 +54,7 @@ cargo run --release -p palaswitch-cli -- sniff 10     # print every HID++ report
 cargo run --release -p palaswitch-cli -- stress 200   # 200 switches between enabled profiles
 ```
 
-Add `--pid C095` to pick a device by USB product ID, and `-v` for debug logs. `stress` puts the mouse back on the profile it started on, also when stopped with Ctrl+C.
+Add `--pid C095` to pick a device by USB product ID, and `-v` for debug logs. `stress` puts the mouse back on the profile it started on, also when stopped with Ctrl+C, and leaves it in onboard mode.
 
 ## License
 

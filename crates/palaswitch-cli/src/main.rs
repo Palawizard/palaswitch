@@ -1,5 +1,7 @@
 //! Command line tool to try the HID++ layer on a connected mouse.
 
+mod plan;
+
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,6 +10,10 @@ use std::time::{Duration, Instant};
 use palaswitch_device::{Connection, HidApi, HidTransport, Mouse, find_mice, hidpp_interfaces};
 use palaswitch_hidpp::features::{Mode, Profile};
 use palaswitch_hidpp::{Error, Transport};
+use plan::{
+    Choice, MAX_SNIFF_SECS, MAX_STRESS_COUNT, choose_profile, describe_profile,
+    mouse_may_be_asleep, parse_bounded, stress_cycle,
+};
 
 const USAGE: &str = "usage: palaswitch-cli [-v] [--pid <hex>] <command>
 
@@ -76,7 +82,7 @@ fn run(options: &Options) -> Result<(), String> {
     let api = HidApi::new().map_err(|error| error.to_string())?;
     let command: Vec<&str> = options.command.iter().map(String::as_str).collect();
     match command.as_slice() {
-        ["list"] => list(&api),
+        ["list"] => list(&api, options.product_id),
         ["get"] => {
             let mut mouse = first_mouse(&api, options.product_id)?;
             let sector = mouse.current_profile().map_err(|error| error.to_string())?;
@@ -84,8 +90,16 @@ fn run(options: &Options) -> Result<(), String> {
             Ok(())
         }
         ["set", number] => set(&api, options.product_id, parse_number(number)?),
-        ["sniff", secs] => sniff(&api, options.product_id, parse_number(secs)?),
-        ["stress", count] => stress(&api, options.product_id, parse_number(count)?),
+        ["sniff", secs] => sniff(
+            &api,
+            options.product_id,
+            parse_bounded(secs, MAX_SNIFF_SECS)?,
+        ),
+        ["stress", count] => stress(
+            &api,
+            options.product_id,
+            parse_bounded(count, MAX_STRESS_COUNT)?,
+        ),
         _ => Err(USAGE.to_owned()),
     }
 }
@@ -99,25 +113,17 @@ fn first_mouse(api: &HidApi, product_id: Option<u16>) -> Result<Mouse, String> {
     for skip in &skipped {
         tracing::debug!(product_id = skip.product_id, reason = %skip.reason, "skipped interface");
     }
-    let asleep = skipped
-        .iter()
-        .any(|skip| matches!(skip.reason, Error::Device(error) if error.is_unreachable()));
+    let asleep = mouse_may_be_asleep(&skipped, product_id);
     mice.into_iter()
         .find(|mouse| product_id.is_none_or(|pid| mouse.product_id == pid))
-        .ok_or_else(|| {
-            if asleep {
-                "no mouse answered: move it or switch it on, then try again".to_owned()
-            } else {
-                "no mouse with onboard profiles found".to_owned()
-            }
-        })
+        .ok_or_else(|| no_mouse_message(asleep))
 }
 
-fn describe_profile(sector: u16) -> String {
-    if sector & 0xFF00 == 0x0100 {
-        format!("factory profile {}", sector & 0xFF)
+fn no_mouse_message(asleep: bool) -> String {
+    if asleep {
+        "no mouse answered: move it or switch it on, then try again".to_owned()
     } else {
-        format!("profile {}", sector & 0xFF)
+        "no mouse with onboard profiles found".to_owned()
     }
 }
 
@@ -128,13 +134,18 @@ fn describe_connection(connection: Connection) -> String {
     }
 }
 
-fn list(api: &HidApi) -> Result<(), String> {
+fn list(api: &HidApi, product_id: Option<u16>) -> Result<(), String> {
     let (mice, skipped) = find_mice(api);
-    for skip in skipped {
+    let selected = |pid: u16| product_id.is_none_or(|wanted| wanted == pid);
+    for skip in skipped.iter().filter(|skip| selected(skip.product_id)) {
         println!("{:04X}: skipped ({})", skip.product_id, skip.reason);
     }
+    let mice: Vec<Mouse> = mice
+        .into_iter()
+        .filter(|mouse| selected(mouse.product_id))
+        .collect();
     if mice.is_empty() {
-        return Err("no mouse with onboard profiles found".to_owned());
+        return Err(no_mouse_message(mouse_may_be_asleep(&skipped, product_id)));
     }
     for mut mouse in mice {
         let info = mouse.info();
@@ -176,13 +187,10 @@ fn print_profiles(mouse: &mut Mouse) -> Result<(), Error> {
 fn set(api: &HidApi, product_id: Option<u16>, number: u16) -> Result<(), String> {
     let mut mouse = first_mouse(api, product_id)?;
     let profiles = mouse.profiles().map_err(|error| error.to_string())?;
-    let profile = profiles
-        .iter()
-        .find(|profile| profile.number() == number)
-        .ok_or_else(|| format!("{} has no profile {number}", mouse.name))?;
-    if !profile.enabled {
-        return Err(format!("profile {number} is disabled on {}", mouse.name));
-    }
+    let profile = choose_profile(&profiles, number).map_err(|choice| match choice {
+        Choice::Missing => format!("{} has no profile {number}", mouse.name),
+        Choice::Disabled => format!("profile {number} is disabled on {}", mouse.name),
+    })?;
     let start = Instant::now();
     mouse
         .switch_to(profile.sector)
@@ -225,15 +233,7 @@ fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), Str
         .map_err(|error| format!("could not catch Ctrl+C: {error}"))?;
 
     let mut mouse = first_mouse(api, product_id)?;
-    let enabled: Vec<Profile> = mouse
-        .profiles()
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .filter(|profile| profile.enabled)
-        .collect();
-    if enabled.len() < 2 {
-        return Err("at least two enabled profiles are needed".to_owned());
-    }
+    let profiles = mouse.profiles().map_err(|error| error.to_string())?;
     let mode = mouse.mode().map_err(|error| error.to_string())?;
     if mode != Mode::Onboard {
         println!(
@@ -241,10 +241,10 @@ fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), Str
         );
     }
     let initial = mouse.current_profile().map_err(|error| error.to_string())?;
-    let start_at = enabled
-        .iter()
-        .position(|profile| profile.sector == initial)
-        .map_or(0, |position| position + 1);
+    let cycle: Vec<Profile> = stress_cycle(&profiles, initial);
+    if cycle.len() < 2 {
+        return Err("at least two enabled profiles are needed".to_owned());
+    }
 
     let mut durations = Vec::with_capacity(count);
     let mut failures = Vec::new();
@@ -254,7 +254,7 @@ fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), Str
             println!("interrupted after {round} switches");
             break;
         }
-        let target = enabled[(start_at + round) % enabled.len()];
+        let target = cycle[round % cycle.len()];
         let start = Instant::now();
         match mouse.switch_to(target.sector) {
             Ok(()) => durations.push(start.elapsed()),
@@ -294,7 +294,10 @@ fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), Str
         let connection = mouse.connection;
         let product_id = mouse.product_id;
         drop(mouse);
-        let mut found = find_mice(api)
+        // The device list of `api` was read at start; the mouse may come back
+        // under a new path, so look again with a fresh one.
+        let fresh = HidApi::new().map_err(|error| error.to_string())?;
+        let mut found = find_mice(&fresh)
             .0
             .into_iter()
             .find(|mouse| mouse.product_id == product_id && mouse.connection == connection)
