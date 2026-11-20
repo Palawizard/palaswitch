@@ -24,3 +24,7 @@ TX 11 01 00 1E 00 00 AA 00 00 00 00 00 00 00 00 00 00 00 00 00
 RXS 10 01 8F 00 1E 08 00
 TX 11 01 0B 3E 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 RXS 10 01 8F 0B 3E 08 00
+# root getFeature(0x1234), a feature the mouse does not have: index 0,
+# not an error report; captured 2026-11-21 with the same program
+TX 11 01 00 0E 12 34 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 00 0E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00

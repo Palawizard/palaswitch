@@ -7,6 +7,7 @@ const ERRORS: &str = include_str!("fixtures/g502x-plus-lightspeed-errors.txt");
 const FOREIGN: &str = include_str!("fixtures/g502x-plus-lightspeed-foreign.txt");
 const READ: &str = include_str!("fixtures/g502x-plus-lightspeed-read.txt");
 const SWITCH: &str = include_str!("fixtures/g502x-plus-lightspeed-switch.txt");
+const WIRED: &str = include_str!("fixtures/g502x-plus-wired-discovery.txt");
 
 fn reply(request_line: (&str, usize), report_line: (&str, usize)) -> Reply {
     let request = LongFrame::parse(&line_bytes(request_line.0, request_line.1)).expect("request");
@@ -125,4 +126,30 @@ fn unknown_device_and_invalid_requests_are_not_retried() {
     ];
 
     assert!(final_errors.iter().all(|&error| !should_retry(error, 1, 3)));
+}
+
+#[test]
+fn response_to_another_function_of_the_same_feature_is_unrelated() {
+    // getCurrentProfile against the getOnboardMode answer.
+    assert_eq!(reply((READ, 6), (READ, 5)), Reply::Unrelated);
+}
+
+#[test]
+fn response_from_another_feature_is_unrelated() {
+    // getFeature (root, feature index 0x00) against the getInfo answer (0x0B).
+    assert_eq!(reply((READ, 0), (READ, 3)), Reply::Unrelated);
+}
+
+#[test]
+fn same_response_for_another_device_index_is_unrelated() {
+    // getFeature(0x8100) sent to the cable (index 0xFF) against the answer
+    // the receiver gave for index 1.
+    assert_eq!(reply((WIRED, 2), (READ, 1)), Reply::Unrelated);
+}
+
+#[test]
+fn receiver_error_for_another_feature_is_unrelated() {
+    // setOnboardMode (feature index 0x0B) against the receiver error for a
+    // ping (root, 0x00) at the same index.
+    assert_eq!(reply((SWITCH, 0), (ERRORS, 9)), Reply::Unrelated);
 }

@@ -24,7 +24,9 @@ fn session(script: Vec<(Vec<u8>, Vec<Vec<u8>>)>) -> Session<ScriptedTransport> {
     Session::new(ScriptedTransport::new(script), 0x01, config())
 }
 
-/// getFeature(0x8100) answered with index 0x0B.
+/// getFeature(0x8100) answered with index 0x0B, from the read capture.
+/// Tests that put it before another capture assemble a sequence that did
+/// not happen in one go.
 fn onboard_lookup() -> (Vec<u8>, Vec<Vec<u8>>) {
     exchanges(READ).swap_remove(0)
 }
@@ -153,6 +155,7 @@ fn ping_returns_protocol_version() {
 
 #[test]
 fn device_name_is_read_from_the_device() {
+    // Exchanges 0, 2 and 3 of the profiles capture, without the ping between them.
     let script = exchanges(PROFILES).into_iter().take(1).collect::<Vec<_>>();
     let script = [script, exchanges(PROFILES)[2..4].to_vec()].concat();
     let mut session = session(script);
@@ -162,6 +165,8 @@ fn device_name_is_read_from_the_device() {
 
 #[test]
 fn profiles_list_enabled_and_disabled_slots() {
+    // Assembled from two captures: feature lookup and getInfo from the read
+    // capture, then the two directory reads of the profiles capture.
     let read = exchanges(READ);
     let profiles_capture = exchanges(PROFILES);
     let script = vec![
@@ -218,6 +223,7 @@ fn empty_user_directory_falls_back_to_factory_profiles() {
 
 #[test]
 fn switch_to_profile_two_and_back_succeeds_despite_notification() {
+    // Assembled: the feature lookup of the read capture, then the switch capture.
     let mut session = session([vec![onboard_lookup()], exchanges(SWITCH)].concat());
     let onboard = OnboardProfiles::find(&mut session).expect("feature");
 
@@ -231,6 +237,8 @@ fn switch_to_profile_two_and_back_succeeds_despite_notification() {
 
 #[test]
 fn notification_received_during_a_switch_is_kept() {
+    // Assembled: the feature lookup of the read capture, then the start of
+    // the switch capture.
     let mut session = session([vec![onboard_lookup()], exchanges(SWITCH)[..3].to_vec()].concat());
     let onboard = OnboardProfiles::find(&mut session).expect("feature");
     onboard.switch_to(&mut session, 0x0002).expect("switch");
@@ -267,5 +275,15 @@ fn switch_reports_profile_the_device_kept() {
             requested: 0x0002,
             active: 0x0001
         })
+    );
+}
+
+#[test]
+fn missing_feature_is_reported_as_not_supported() {
+    let mut session = session(vec![exchanges(ERRORS).swap_remove(6)]);
+
+    assert_eq!(
+        session.feature_index(0x1234),
+        Err(Error::FeatureNotSupported(0x1234))
     );
 }
