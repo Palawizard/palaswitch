@@ -132,3 +132,14 @@ fn receiver_with_mouse_switched_off_reports_unknown_device() {
         (Some(Error::Device(DeviceError::Hidpp10(0x08))), 0)
     );
 }
+
+#[test]
+fn mouse_that_does_not_answer_is_reported_instead_of_empty_indices() {
+    // Index 1 gets no answer at all; indices 2 to 6 are empty.
+    let receiver = exchanges(RECEIVER);
+    let silent = (receiver[1].0.clone(), Vec::new());
+    let script = [vec![receiver[0].clone(), silent], receiver[7..].to_vec()].concat();
+    let (result, left) = discover(script, 0xC547);
+
+    assert_eq!((result.err(), left), (Some(Error::Timeout), 0));
+}

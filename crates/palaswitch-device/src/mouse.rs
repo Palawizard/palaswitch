@@ -9,6 +9,9 @@ use crate::transport::HidTransport;
 const DIRECT_INDEX: u8 = 0xFF;
 /// Device indices a receiver can pair.
 const RECEIVER_INDICES: std::ops::RangeInclusive<u8> = 1..=6;
+/// What a receiver answers for an index with nothing paired, or with the
+/// mouse switched off or in deep sleep.
+const EMPTY_INDEX: Error = Error::Device(DeviceError::Hidpp10(0x08));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Connection {
@@ -131,12 +134,18 @@ pub(crate) fn probe_interface<T: Transport>(
     }
 
     let mut mice = Vec::new();
-    let mut last_error = Error::Malformed("no device index answered");
+    let mut reason: Option<Error> = None;
     let mut spare = Some(session.into_transport());
     for index in RECEIVER_INDICES {
         let transport = match spare.take() {
             Some(transport) => transport,
-            None => open()?,
+            None => match open() {
+                Ok(transport) => transport,
+                Err(error) => {
+                    reason = Some(error);
+                    break;
+                }
+            },
         };
         let mut session = Session::new(transport, index, Config::default());
         match probe(&mut session) {
@@ -151,18 +160,30 @@ pub(crate) fn probe_interface<T: Transport>(
                     info,
                 });
             }
-            Err(error @ Error::Transport(_)) => return Err(error),
+            Err(error @ Error::Transport(_)) => {
+                reason = Some(error);
+                break;
+            }
             Err(error) => {
                 tracing::debug!(%error, index, product_id, "no device");
-                last_error = error;
+                reason = Some(more_telling(reason, error));
                 spare = Some(session.into_transport());
             }
         }
     }
     if mice.is_empty() {
-        Err(last_error)
+        Err(reason.unwrap_or(Error::Malformed("no device index answered")))
     } else {
         Ok(mice)
+    }
+}
+
+/// Keeps the error that says the most about why nothing answered: an empty
+/// index (unknown device) only matters when every index is empty.
+fn more_telling(kept: Option<Error>, new: Error) -> Error {
+    match kept {
+        Some(kept) if kept != EMPTY_INDEX => kept,
+        _ => new,
     }
 }
 
