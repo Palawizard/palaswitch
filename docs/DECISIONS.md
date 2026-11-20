@@ -8,7 +8,7 @@ A superseded decision is marked "superseded by ADR-xxx", never rewritten.
 
 ### Context
 
-palaswitch is a public, very lightweight Windows utility that lives in the notification area, switches the onboard profile of a Logitech mouse reliably and has a single small settings window (global shortcuts, profile names, start with Windows), in French and English. The tool it replaces (an AutoHotkey script calling a Python HID++ library) failed about three times out of four, most likely because its transport took the first frame it read as the answer to its request, while notifications and replies meant for other Logitech software arrive on the same handle.
+palaswitch is a public, very lightweight Windows utility that lives in the notification area, switches the onboard profile of a Logitech mouse reliably and has a single small settings window (global shortcuts, profile names, start with Windows), in French and English. The tool it replaces (an AutoHotkey script calling a Python HID++ library) failed about three times out of four, most likely because its transport took the first frame it read as the answer to its request, while notifications and replies meant for other HID++ software arrive on the same handle.
 
 ### Options considered
 
@@ -31,6 +31,6 @@ For HID++: `hidpp` 0.2.0 (no 0x8100 support), `openlogi-hidpp` 0.9.0 (correct, b
 
 - No React, Vite or Node in the project.
 - The interface takes more code (controls, dark theme, DPI, keyboard); the window stays deliberately tiny.
-- Unsigned executable: SmartScreen warns on first launch; documented in the README.
+- Unsigned executable: SmartScreen warns on first launch; to be explained in the README with the first release.
 - `vpk` needs the .NET 8 SDK on the release machine and in CI.
 - The skeleton measured 2.1 MB of private memory and no CPU time at rest (2026-11-20).

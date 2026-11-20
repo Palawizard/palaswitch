@@ -4,7 +4,7 @@ A small Windows tray utility that switches the onboard profile of a Logitech gam
 
 Status: early development. The current build only shows a tray icon with a Quit entry; profile switching is not there yet.
 
-Tested with a G502 X PLUS, wired and through its LIGHTSPEED receiver. Other Logitech mice that keep profiles in onboard memory should work too, but they have not been tried.
+Developed against a G502 X PLUS (wired and LIGHTSPEED). Other Logitech mice that keep profiles in onboard memory are expected to work, but they have not been tried.
 
 ## Installation
 
@@ -40,7 +40,7 @@ The CI runs the same script.
 The workspace has three crates:
 
 - `palaswitch-hidpp`: the HID++ protocol, with no dependency on Windows or on a HID library, tested against frames captured from a real mouse.
-- `palaswitch-cli`: a command line tool for trying the protocol on a connected mouse.
+- `palaswitch-cli`: placeholder for now; it will become a command line tool for trying the protocol on a connected mouse.
 - `palaswitch`: the tray app.
 
 ## License
