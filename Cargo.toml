@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/palaswitch", "crates/palaswitch-cli", "crates/palaswitch-hidpp"]
+members = ["crates/palaswitch", "crates/palaswitch-cli", "crates/palaswitch-device", "crates/palaswitch-hidpp"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,7 +11,11 @@ repository = "https://github.com/Palawizard/palaswitch"
 
 [workspace.dependencies]
 embed-manifest = "1.5.1"
+hidapi = "2.6.7"
+palaswitch-device = { path = "crates/palaswitch-device" }
+palaswitch-hidpp = { path = "crates/palaswitch-hidpp" }
 tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
 tray-icon = "0.26.1"
 windows = "0.62.2"
 
