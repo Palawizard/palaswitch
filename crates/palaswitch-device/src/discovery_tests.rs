@@ -119,7 +119,8 @@ fn wired_discovery_stops_at_index_ff() {
 fn receiver_with_mouse_switched_off_reports_unknown_device() {
     let receiver = exchanges(RECEIVER);
     let errors = exchanges(ERRORS);
-    // Index 0xFF, then index 1 with the mouse off, then indices 2 to 6.
+    // Assembled from the discovery and errors captures: index 0xFF, then
+    // index 1 with the mouse switched off, then indices 2 to 6.
     let script = [
         vec![receiver[0].clone(), errors[4].clone()],
         receiver[7..].to_vec(),
@@ -135,7 +136,8 @@ fn receiver_with_mouse_switched_off_reports_unknown_device() {
 
 #[test]
 fn mouse_that_does_not_answer_is_reported_instead_of_empty_indices() {
-    // Index 1 gets no answer at all; indices 2 to 6 are empty.
+    // Assembled from the discovery capture: index 1 gets no answer at all
+    // (its reply removed), indices 2 to 6 are empty.
     let receiver = exchanges(RECEIVER);
     let silent = (receiver[1].0.clone(), Vec::new());
     let script = [vec![receiver[0].clone(), silent], receiver[7..].to_vec()].concat();
