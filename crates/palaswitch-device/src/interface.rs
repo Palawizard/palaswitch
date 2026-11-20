@@ -102,6 +102,41 @@ mod tests {
         );
     }
 
+    // Paths of the same mouse plugged in with its cable, listed by hidapi on 2026-11-20.
+    const WIRED_SHORT_PATH: &str = r"\\?\HID#VID_046D&PID_C095&MI_02&Col01#8&e6c451&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+    const WIRED_LONG_PATH: &str = r"\\?\HID#VID_046D&PID_C095&MI_02&Col02#8&e6c451&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+
+    #[test]
+    fn receiver_and_cable_give_two_interfaces_each_with_its_own_short_collection() {
+        let wired = |usage, path: &str| Collection {
+            product_id: 0xC095,
+            product: "G502 X PLUS".to_owned(),
+            ..collection(usage, path)
+        };
+        let collections = [
+            collection(SHORT_USAGE, SHORT_PATH),
+            wired(LONG_USAGE, WIRED_LONG_PATH),
+            collection(LONG_USAGE, LONG_PATH),
+            wired(SHORT_USAGE, WIRED_SHORT_PATH),
+        ];
+
+        let interfaces = group_hidpp_collections(&collections);
+
+        assert_eq!(
+            interfaces
+                .iter()
+                .map(|interface| (
+                    interface.product_id,
+                    interface
+                        .short_path
+                        .as_ref()
+                        .and_then(|path| path.to_str().ok())
+                ))
+                .collect::<Vec<_>>(),
+            vec![(0xC095, Some(WIRED_SHORT_PATH)), (0xC547, Some(SHORT_PATH))]
+        );
+    }
+
     #[test]
     fn short_collection_alone_is_not_an_interface() {
         let interfaces = group_hidpp_collections(&[collection(SHORT_USAGE, SHORT_PATH)]);
