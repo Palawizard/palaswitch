@@ -25,14 +25,26 @@ pub struct Interface {
     pub short_path: Option<CString>,
 }
 
-/// Windows lists each collection with its own path, the same up to its
-/// `&ColNN` part: `\\?\HID#VID_046D&PID_C547&MI_02&Col02#...`.
+/// Windows lists each collection with its own path, which differs from the
+/// other collections of the same interface only in its `&ColNN` part and in
+/// the last segment of the instance:
+/// `\\?\HID#VID_046D&PID_C547&MI_02&Col02#a&26685ccb&0&0001#{...}`.
+/// The rest of the instance tells two identical receivers apart.
 fn interface_key(path: &CString) -> String {
     let path = path.to_string_lossy().to_ascii_lowercase();
-    match path.find("&col") {
-        Some(start) => path[..start].to_owned(),
-        None => path,
-    }
+    let mut parts = path.split('#');
+    let _prefix = parts.next();
+    let hardware = parts.next().unwrap_or_default();
+    let instance = parts.next().unwrap_or_default();
+    let hardware = match hardware.find("&col") {
+        Some(start) => &hardware[..start],
+        None => hardware,
+    };
+    let instance = match instance.rfind('&') {
+        Some(end) => &instance[..end],
+        None => instance,
+    };
+    format!("{hardware}#{instance}")
 }
 
 /// Pairs the short and long HID++ collections of each interface. Interfaces
@@ -134,6 +146,42 @@ mod tests {
                 ))
                 .collect::<Vec<_>>(),
             vec![(0xC095, Some(WIRED_SHORT_PATH)), (0xC547, Some(SHORT_PATH))]
+        );
+    }
+
+    #[test]
+    fn two_receivers_of_the_same_model_keep_their_own_short_collection() {
+        // A second receiver of the same model differs only in its instance
+        // ID; this one is the real path with that ID changed.
+        let other_short = SHORT_PATH.replace("a&26685ccb", "a&1b2c3d4e");
+        let other_long = LONG_PATH.replace("a&26685ccb", "a&1b2c3d4e");
+        let collections = [
+            collection(SHORT_USAGE, &other_short),
+            collection(LONG_USAGE, LONG_PATH),
+            collection(SHORT_USAGE, SHORT_PATH),
+            collection(LONG_USAGE, &other_long),
+        ];
+
+        let pairs: Vec<(String, String)> = group_hidpp_collections(&collections)
+            .iter()
+            .map(|interface| {
+                (
+                    interface.long_path.to_string_lossy().into_owned(),
+                    interface
+                        .short_path
+                        .as_ref()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            pairs,
+            vec![
+                (LONG_PATH.to_owned(), SHORT_PATH.to_owned()),
+                (other_long, other_short)
+            ]
         );
     }
 

@@ -1,6 +1,6 @@
 use hidapi::HidApi;
 use palaswitch_hidpp::features::{self, Mode, OnboardProfiles, Profile, ProfilesInfo};
-use palaswitch_hidpp::{Config, Error, LongFrame, Session};
+use palaswitch_hidpp::{Config, DeviceError, Error, LongFrame, Session, Transport};
 
 use crate::interface::{Collection, Interface, LOGITECH_VENDOR_ID, group_hidpp_collections};
 use crate::transport::HidTransport;
@@ -20,16 +20,16 @@ pub enum Connection {
 
 /// A Logitech device with onboard profiles, ready for requests.
 #[derive(Debug)]
-pub struct Mouse {
+pub struct Mouse<T = HidTransport> {
     pub name: String,
     pub product_id: u16,
     pub connection: Connection,
-    session: Session<HidTransport>,
+    session: Session<T>,
     onboard: OnboardProfiles,
     info: ProfilesInfo,
 }
 
-impl Mouse {
+impl<T: Transport> Mouse<T> {
     pub fn info(&self) -> ProfilesInfo {
         self.info
     }
@@ -91,7 +91,8 @@ pub fn find_mice(api: &HidApi) -> (Vec<Mouse>, Vec<Skipped>) {
     let mut mice = Vec::new();
     let mut skipped = Vec::new();
     for interface in hidpp_interfaces(api) {
-        match open_interface(api, &interface) {
+        let open = || HidTransport::open(api, &interface).map_err(Error::Transport);
+        match probe_interface(open, interface.product_id) {
             Ok(found) => mice.extend(found),
             Err(reason) => skipped.push(Skipped {
                 product_id: interface.product_id,
@@ -102,44 +103,57 @@ pub fn find_mice(api: &HidApi) -> (Vec<Mouse>, Vec<Skipped>) {
     (mice, skipped)
 }
 
-fn open_interface(api: &HidApi, interface: &Interface) -> Result<Vec<Mouse>, Error> {
+/// Looks for devices with onboard profiles behind one interface: index 0xFF
+/// first, which is the device itself when it is plugged in directly. A
+/// receiver answers 0xFF with a HID++ 1.0 error; only then are the paired
+/// indices 1 to 6 tried. `open` gives a fresh transport to the interface.
+pub(crate) fn probe_interface<T: Transport>(
+    mut open: impl FnMut() -> Result<T, Error>,
+    product_id: u16,
+) -> Result<Vec<Mouse<T>>, Error> {
+    let mut session = Session::new(open()?, DIRECT_INDEX, Config::default());
+    match probe(&mut session) {
+        Ok((onboard, info, name)) => {
+            tracing::info!(name, product_id, "found device plugged in directly");
+            return Ok(vec![Mouse {
+                name,
+                product_id,
+                connection: Connection::Wired,
+                session,
+                onboard,
+                info,
+            }]);
+        }
+        Err(Error::Device(DeviceError::Hidpp10(code))) => {
+            tracing::debug!(code, product_id, "receiver, trying paired devices");
+        }
+        Err(error) => return Err(error),
+    }
+
     let mut mice = Vec::new();
     let mut last_error = Error::Malformed("no device index answered");
-    let mut spare: Option<HidTransport> = None;
-    for index in std::iter::once(DIRECT_INDEX).chain(RECEIVER_INDICES) {
+    let mut spare = Some(session.into_transport());
+    for index in RECEIVER_INDICES {
         let transport = match spare.take() {
             Some(transport) => transport,
-            None => HidTransport::open(api, interface)?,
+            None => open()?,
         };
-        // A sleeping wireless mouse can take over half a second to answer its
-        // first request; empty indices and receivers answer at once.
         let mut session = Session::new(transport, index, Config::default());
         match probe(&mut session) {
             Ok((onboard, info, name)) => {
-                tracing::info!(
-                    name,
-                    index,
-                    product_id = interface.product_id,
-                    "found device"
-                );
+                tracing::info!(name, index, product_id, "found device behind receiver");
                 mice.push(Mouse {
                     name,
-                    product_id: interface.product_id,
-                    connection: if index == DIRECT_INDEX {
-                        Connection::Wired
-                    } else {
-                        Connection::Receiver(index)
-                    },
+                    product_id,
+                    connection: Connection::Receiver(index),
                     session,
                     onboard,
                     info,
                 });
-                if index == DIRECT_INDEX {
-                    break;
-                }
             }
+            Err(error @ Error::Transport(_)) => return Err(error),
             Err(error) => {
-                tracing::debug!(%error, index, product_id = interface.product_id, "no device");
+                tracing::debug!(%error, index, product_id, "no device");
                 last_error = error;
                 spare = Some(session.into_transport());
             }
@@ -152,12 +166,22 @@ fn open_interface(api: &HidApi, interface: &Interface) -> Result<Vec<Mouse>, Err
     }
 }
 
-fn probe(
-    session: &mut Session<HidTransport>,
+// A sleeping wireless mouse can take up to two seconds to answer its first
+// request, so probing keeps the normal timeout; empty indices and receivers
+// answer at once.
+fn probe<T: Transport>(
+    session: &mut Session<T>,
 ) -> Result<(OnboardProfiles, ProfilesInfo, String), Error> {
     session.ping()?;
     let onboard = OnboardProfiles::find(session)?;
     let info = onboard.info(session)?;
-    let name = features::device_name(session).unwrap_or_default();
+    let name = features::device_name(session).unwrap_or_else(|error| {
+        tracing::debug!(%error, "could not read the device name");
+        String::new()
+    });
     Ok((onboard, info, name))
 }
+
+#[cfg(test)]
+#[path = "discovery_tests.rs"]
+mod tests;
