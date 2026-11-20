@@ -31,13 +31,43 @@ fn onboard_lookup() -> (Vec<u8>, Vec<Vec<u8>>) {
 
 #[test]
 fn request_skips_response_meant_for_another_program() {
-    let (request, own) = exchanges(READ).swap_remove(3);
+    // Assembled from two captures: the getCurrentProfile answer sent to
+    // software ID 0x0D (profile 1, from the foreign capture) arrives before
+    // ours (profile 2, from the switch capture).
+    let (request, _) = exchanges(READ).swap_remove(3);
     let foreign = line_bytes(FOREIGN, 1);
-    let mut session = session(vec![(request, [vec![foreign], own].concat())]);
+    let own = line_bytes(SWITCH, 6);
+    let mut session = session(vec![(request, vec![foreign, own])]);
 
     let response = session.request(0x0B, 4, &[]).expect("response");
 
-    assert_eq!(response.params()[..2], [0x00, 0x01]);
+    assert_eq!(response.params()[..2], [0x00, 0x02]);
+}
+
+#[test]
+fn response_meant_for_another_program_is_not_kept_as_notification() {
+    // Assembled: the getInfo answer sent to software ID 0x0D has function 0,
+    // like a profile change notification, and arrives before our own answer.
+    let (request, own) = exchanges(READ).swap_remove(1);
+    let foreign = line_bytes(FOREIGN, 3);
+    let mut session = session(vec![(request, [vec![foreign], own].concat())]);
+    session.request(0x0B, 0, &[]).expect("response");
+
+    assert!(session.take_notifications().is_empty());
+}
+
+#[test]
+fn notification_from_another_device_index_is_not_kept() {
+    // Assembled: a session for index 2 sees the notification index 1 sent
+    // in the switch capture, then the receiver's error for index 2.
+    let notification = line_bytes(SWITCH, 4);
+    let (request, replies) = exchanges(ERRORS).swap_remove(0);
+    let transport =
+        ScriptedTransport::new(vec![(request, replies)]).with_pending(vec![notification]);
+    let mut session = Session::new(transport, 0x02, config());
+    let _ = session.feature_index(0x8100);
+
+    assert!(session.take_notifications().is_empty());
 }
 
 #[test]
@@ -65,9 +95,10 @@ fn request_times_out_when_nothing_answers() {
 
 #[test]
 fn late_answer_to_an_earlier_request_is_drained_before_writing() {
-    // An answer saying profile 2, left over from an earlier getCurrentProfile
-    // that timed out, is still waiting when getCurrentProfile is sent again;
-    // the new answer says profile 1.
+    // Assembled from two captures to stand for a late answer: the
+    // getCurrentProfile answer saying profile 2 (switch capture) is already
+    // waiting when getCurrentProfile is sent; the answer to this request says
+    // profile 1 (read capture).
     let stale = line_bytes(SWITCH, 6);
     let (request, own) = exchanges(READ).swap_remove(3);
     let transport = ScriptedTransport::new(vec![(request, own)]).with_pending(vec![stale]);
@@ -80,6 +111,8 @@ fn late_answer_to_an_earlier_request_is_drained_before_writing() {
 
 #[test]
 fn notification_arriving_before_the_response_is_kept() {
+    // Assembled: the notification of the switch capture inserted before the
+    // getCurrentProfile answer of the read capture.
     let (request, own) = exchanges(READ).swap_remove(3);
     let notification = line_bytes(SWITCH, 4);
     let mut session = session(vec![(request, [vec![notification], own].concat())]);
@@ -158,9 +191,10 @@ fn profiles_list_enabled_and_disabled_slots() {
 fn empty_user_directory_falls_back_to_factory_profiles() {
     let read = exchanges(READ);
     let profiles_capture = exchanges(PROFILES);
-    // The answer to an empty directory is sixteen 0xFF bytes. This mouse has
-    // a user directory, so the reply is the real, byte-identical answer the
-    // same function gave for an unwritten area (profile 1, offset 0xA0).
+    // Assembled: an unwritten memory area reads as sixteen 0xFF bytes, so a
+    // directory that was never written starts with the end marker 0xFFFF.
+    // This mouse has a user directory; the reply is the answer the same
+    // function gave for an unwritten area (profile 1, offset 0xA0).
     let empty = profiles_capture[6].1.clone();
     let script = vec![
         read[0].clone(),
@@ -214,7 +248,9 @@ fn notification_received_during_a_switch_is_kept() {
 
 #[test]
 fn switch_reports_profile_the_device_kept() {
-    // The device acknowledges setCurrentProfile(2) but still reports profile 1.
+    // Assembled to stand for a device that keeps its profile: the answers to
+    // setOnboardMode and setCurrentProfile(2), then the getCurrentProfile
+    // answer saying profile 1, taken from the switch back to profile 1.
     let switch = exchanges(SWITCH);
     let script = vec![
         onboard_lookup(),

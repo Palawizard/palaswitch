@@ -83,6 +83,12 @@ impl From<TransportError> for Error {
     }
 }
 
+/// Whether a request that failed with `error` on try number `attempt`
+/// (counted from 1) is sent again, given `attempts` tries in all.
+pub fn should_retry(error: DeviceError, attempt: u8, attempts: u8) -> bool {
+    error.is_retryable() && attempt < attempts
+}
+
 /// Requests to one HID++ 2.0 device (one device index) over a transport.
 #[derive(Debug)]
 pub struct Session<T> {
@@ -124,7 +130,7 @@ impl<T: Transport> Session<T> {
             self.transport.write(&request.to_bytes())?;
             match self.await_reply(&request)? {
                 Ok(response) => return Ok(response),
-                Err(error) if error.is_retryable() && attempt < self.config.attempts => {
+                Err(error) if should_retry(error, attempt, self.config.attempts) => {
                     tracing::debug!(%error, attempt, "retrying HID++ request");
                     attempt += 1;
                     std::thread::sleep(self.config.retry_delay);

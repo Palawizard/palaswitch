@@ -1,7 +1,7 @@
 mod common;
 
 use common::line_bytes;
-use palaswitch_hidpp::{DeviceError, InputReport, LongFrame, Reply, classify};
+use palaswitch_hidpp::{DeviceError, InputReport, LongFrame, Reply, classify, should_retry};
 
 const ERRORS: &str = include_str!("fixtures/g502x-plus-lightspeed-errors.txt");
 const FOREIGN: &str = include_str!("fixtures/g502x-plus-lightspeed-foreign.txt");
@@ -83,4 +83,46 @@ fn receiver_rejects_hidpp20_ping_at_its_own_index() {
 #[test]
 fn receiver_rejecting_ping_does_not_mean_unreachable() {
     assert!(!DeviceError::Hidpp10(0x01).is_unreachable());
+}
+
+#[test]
+fn receiver_error_for_another_function_is_unrelated() {
+    // getCurrentProfile waiting at index 1, against the receiver error that
+    // answered setCurrentProfile at the same index with the mouse switched off.
+    assert_eq!(reply((READ, 6), (ERRORS, 11)), Reply::Unrelated);
+}
+
+#[test]
+fn receiver_error_for_another_device_index_is_unrelated() {
+    // getFeature(0x8100) at index 1, against the error for the same request at index 2.
+    assert_eq!(reply((READ, 0), (ERRORS, 1)), Reply::Unrelated);
+}
+
+#[test]
+fn busy_and_unreachable_errors_are_retried_until_the_last_try() {
+    let retryable = [
+        DeviceError::Hidpp20(0x08),
+        DeviceError::Hidpp10(0x04),
+        DeviceError::Hidpp10(0x07),
+        DeviceError::Hidpp10(0x09),
+    ];
+
+    let decisions: Vec<[bool; 3]> = retryable
+        .iter()
+        .map(|&error| [1, 2, 3].map(|attempt| should_retry(error, attempt, 3)))
+        .collect();
+
+    assert_eq!(decisions, vec![[true, true, false]; 4]);
+}
+
+#[test]
+fn unknown_device_and_invalid_requests_are_not_retried() {
+    let final_errors = [
+        DeviceError::Hidpp10(0x08),
+        DeviceError::Hidpp10(0x01),
+        DeviceError::Hidpp20(0x02),
+        DeviceError::Hidpp20(0x07),
+    ];
+
+    assert!(final_errors.iter().all(|&error| !should_retry(error, 1, 3)));
 }

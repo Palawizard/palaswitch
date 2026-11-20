@@ -164,10 +164,14 @@ impl OnboardProfiles {
         session: &mut Session<T>,
         info: ProfilesInfo,
     ) -> Result<Vec<Profile>, Error> {
-        let max = usize::from(info.profile_count);
-        let profiles = self.read_directory(session, DIRECTORY_SECTOR, max)?;
+        let profiles =
+            self.read_directory(session, DIRECTORY_SECTOR, usize::from(info.profile_count))?;
         if profiles.is_empty() {
-            return self.read_directory(session, ROM_DIRECTORY_SECTOR, max);
+            return self.read_directory(
+                session,
+                ROM_DIRECTORY_SECTOR,
+                usize::from(info.rom_profile_count),
+            );
         }
         Ok(profiles)
     }
