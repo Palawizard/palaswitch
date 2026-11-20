@@ -1,0 +1,10 @@
+# G502 X PLUS through the LIGHTSPEED receiver (USB 046D:C547, device index 1),
+# captured 2026-11-20 with hidapi 2.6.7 by a throwaway program. Requests sent
+# with software ID 0x0D, the one G HUB uses: these are real responses meant for
+# another program, which palaswitch must never take for its own.
+# onboard profiles getCurrentProfile, software ID 0x0D
+TX 11 01 0B 4D 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 0B 4D 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+# onboard profiles getInfo, software ID 0x0D
+TX 11 01 0B 0D 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 0B 0D 01 05 01 05 02 0B 10 00 FF 0A 04 00 00 00 00 00

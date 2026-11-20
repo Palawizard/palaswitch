@@ -11,6 +11,7 @@ repository = "https://github.com/Palawizard/palaswitch"
 
 [workspace.dependencies]
 embed-manifest = "1.5.1"
+tracing = "0.1.44"
 tray-icon = "0.26.1"
 windows = "0.62.2"
 

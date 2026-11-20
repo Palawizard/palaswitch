@@ -1,0 +1,13 @@
+# G502 X PLUS through the LIGHTSPEED receiver (USB 046D:C547), captured
+# 2026-11-20 with hidapi 2.6.7 by a throwaway program reading both HID++
+# collections. RX = long collection, RXS = short collection.
+# root getFeature(0x8100) sent to device index 2, where nothing is paired:
+# HID++ 1.0 error 0x08 (unknown device) from the receiver, on the short collection
+TX 11 02 00 0E 81 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RXS 10 02 8F 00 0E 08 00
+# onboard profiles function 0xF, which does not exist: HID++ 2.0 error 0x07 (invalid function)
+TX 11 01 0B FE 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 FF 0B FE 07 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+# device name getName(offset 0x10), past the 11-character name: HID++ 2.0 error 0x02 (invalid argument)
+TX 11 01 03 1E 10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 FF 03 1E 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00
