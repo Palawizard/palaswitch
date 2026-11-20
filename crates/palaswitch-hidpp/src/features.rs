@@ -23,6 +23,9 @@ const PROFILES_MEMORY_READ: u8 = 5;
 pub const PROFILE_CHANGED_EVENT: u8 = 0;
 
 const DIRECTORY_SECTOR: u16 = 0x0000;
+/// Directory of the factory profiles, read when the user directory is empty.
+const ROM_DIRECTORY_SECTOR: u16 = 0x0100;
+const ROM_SECTOR_BASE: u16 = 0x0100;
 const DIRECTORY_END: u16 = 0xFFFF;
 const MEMORY_CHUNK: usize = 16;
 const DIRECTORY_ENTRY_LEN: usize = 4;
@@ -82,9 +85,15 @@ pub struct Profile {
 }
 
 impl Profile {
-    /// Number shown to the user: 1 for the first slot.
+    /// Number shown to the user: 1 for the first slot, of user or factory
+    /// profiles.
     pub fn number(&self) -> u16 {
         self.sector & 0x00FF
+    }
+
+    /// Whether this is a read-only factory profile.
+    pub fn is_rom(&self) -> bool {
+        self.sector & 0xFF00 == ROM_SECTOR_BASE
     }
 }
 
@@ -148,17 +157,31 @@ impl OnboardProfiles {
     }
 
     /// Profile slots listed in the onboard memory directory, at most
-    /// `profile_count` of them.
+    /// `profile_count` of them. A device whose user directory was never
+    /// written lists its factory profiles instead.
     pub fn profiles<T: Transport>(
         &self,
         session: &mut Session<T>,
         info: ProfilesInfo,
     ) -> Result<Vec<Profile>, Error> {
-        let mut profiles = Vec::new();
         let max = usize::from(info.profile_count);
+        let profiles = self.read_directory(session, DIRECTORY_SECTOR, max)?;
+        if profiles.is_empty() {
+            return self.read_directory(session, ROM_DIRECTORY_SECTOR, max);
+        }
+        Ok(profiles)
+    }
+
+    fn read_directory<T: Transport>(
+        &self,
+        session: &mut Session<T>,
+        sector: u16,
+        max: usize,
+    ) -> Result<Vec<Profile>, Error> {
+        let mut profiles = Vec::new();
         let mut offset: u16 = 0;
         while profiles.len() < max {
-            let chunk = self.memory_read(session, DIRECTORY_SECTOR, offset)?;
+            let chunk = self.memory_read(session, sector, offset)?;
             if parse_directory_chunk(&chunk, &mut profiles).is_none() {
                 break;
             }

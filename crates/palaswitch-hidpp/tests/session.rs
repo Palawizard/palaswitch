@@ -3,7 +3,7 @@ mod common;
 use std::time::Duration;
 
 use common::{ScriptedTransport, exchanges, line_bytes};
-use palaswitch_hidpp::features::{OnboardProfiles, Profile, device_name};
+use palaswitch_hidpp::features::{OnboardProfiles, device_name};
 use palaswitch_hidpp::{Config, DeviceError, Error, Session};
 
 const ERRORS: &str = include_str!("fixtures/g502x-plus-lightspeed-errors.txt");
@@ -65,16 +65,42 @@ fn request_times_out_when_nothing_answers() {
 
 #[test]
 fn late_answer_to_an_earlier_request_is_drained_before_writing() {
-    // The answer to a getInfo that timed out is still waiting when
-    // getCurrentProfile is sent; it must not be read as the new answer.
-    let stale = line_bytes(READ, 3);
+    // An answer saying profile 2, left over from an earlier getCurrentProfile
+    // that timed out, is still waiting when getCurrentProfile is sent again;
+    // the new answer says profile 1.
+    let stale = line_bytes(SWITCH, 6);
     let (request, own) = exchanges(READ).swap_remove(3);
     let transport = ScriptedTransport::new(vec![(request, own)]).with_pending(vec![stale]);
     let mut session = Session::new(transport, 0x01, config());
 
     let response = session.request(0x0B, 4, &[]).expect("response");
 
-    assert_eq!(response.function(), 4);
+    assert_eq!(response.params()[..2], [0x00, 0x01]);
+}
+
+#[test]
+fn notification_arriving_before_the_response_is_kept() {
+    let (request, own) = exchanges(READ).swap_remove(3);
+    let notification = line_bytes(SWITCH, 4);
+    let mut session = session(vec![(request, [vec![notification], own].concat())]);
+    session.request(0x0B, 4, &[]).expect("response");
+
+    let notifications = session.take_notifications();
+
+    assert_eq!(notifications.len(), 1);
+}
+
+#[test]
+fn switched_off_mouse_fails_at_once_without_retrying() {
+    let (request, replies) = exchanges(ERRORS).swap_remove(4);
+    let mut session = session(vec![(request, replies)]);
+
+    let result = session.ping();
+
+    assert_eq!(
+        (result, session.into_transport().writes),
+        (Err(Error::Device(DeviceError::Hidpp10(0x08))), 1)
+    );
 }
 
 #[test]
@@ -115,15 +141,45 @@ fn profiles_list_enabled_and_disabled_slots() {
     let onboard = OnboardProfiles::find(&mut session).expect("feature");
     let info = onboard.info(&mut session).expect("info");
 
-    let enabled: Vec<u16> = onboard
+    let slots: Vec<(u16, bool)> = onboard
         .profiles(&mut session, info)
         .expect("profiles")
         .iter()
-        .filter(|profile| profile.enabled)
-        .map(Profile::number)
+        .map(|profile| (profile.number(), profile.enabled))
         .collect();
 
-    assert_eq!((info.profile_count, enabled), (5, vec![1, 2, 3]));
+    assert_eq!(
+        slots,
+        vec![(1, true), (2, true), (3, true), (4, false), (5, false)]
+    );
+}
+
+#[test]
+fn empty_user_directory_falls_back_to_factory_profiles() {
+    let read = exchanges(READ);
+    let profiles_capture = exchanges(PROFILES);
+    // The answer to an empty directory is sixteen 0xFF bytes. This mouse has
+    // a user directory, so the reply is the real, byte-identical answer the
+    // same function gave for an unwritten area (profile 1, offset 0xA0).
+    let empty = profiles_capture[6].1.clone();
+    let script = vec![
+        read[0].clone(),
+        read[1].clone(),
+        (profiles_capture[4].0.clone(), empty),
+        profiles_capture[11].clone(),
+    ];
+    let mut session = session(script);
+    let onboard = OnboardProfiles::find(&mut session).expect("feature");
+    let info = onboard.info(&mut session).expect("info");
+
+    let slots: Vec<(u16, bool)> = onboard
+        .profiles(&mut session, info)
+        .expect("profiles")
+        .iter()
+        .map(|profile| (profile.sector, profile.is_rom()))
+        .collect();
+
+    assert_eq!(slots, vec![(0x0101, true), (0x0102, true)]);
 }
 
 #[test]

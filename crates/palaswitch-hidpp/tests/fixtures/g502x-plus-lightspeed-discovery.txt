@@ -1,0 +1,33 @@
+# Discovery of the G502 X PLUS through the LIGHTSPEED receiver (USB 046D:C547),
+# 2026-11-20. RX and RXS lines were captured by `palaswitch-cli sniff`, which
+# only sees incoming reports (RX = long collection, RXS = short collection);
+# the TX lines are the requests `palaswitch-cli list` sent at the same time,
+# in the order the responses show. The mouse had been idle for a while, so
+# the ping at index 1 took about 0.6 s.
+# index 0xFF is the receiver itself: HID++ 1.0 error 0x01 (invalid sub ID)
+TX 11 FF 00 1E 00 00 AA 00 00 00 00 00 00 00 00 00 00 00 00 00
+RXS 10 FF 8F 00 1E 01 00
+# index 1: the mouse
+TX 11 01 00 1E 00 00 AA 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 00 1E 04 02 AA 00 00 00 00 00 00 00 00 00 00 00 00 00
+TX 11 01 00 0E 81 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 00 0E 0B 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+TX 11 01 0B 0E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 0B 0E 01 05 01 05 02 0B 10 00 FF 0A 04 00 00 00 00 00
+TX 11 01 00 0E 00 05 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 00 0E 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+TX 11 01 03 0E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 03 0E 0B 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+TX 11 01 03 1E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 03 1E 47 35 30 32 20 58 20 50 4C 55 53 00 00 00 00 00
+# indices 2 to 6: nothing paired, HID++ 1.0 error 0x08 (unknown device)
+TX 11 02 00 1E 00 00 AA 00 00 00 00 00 00 00 00 00 00 00 00 00
+RXS 10 02 8F 00 1E 08 00
+TX 11 03 00 1E 00 00 AA 00 00 00 00 00 00 00 00 00 00 00 00 00
+RXS 10 03 8F 00 1E 08 00
+TX 11 04 00 1E 00 00 AA 00 00 00 00 00 00 00 00 00 00 00 00 00
+RXS 10 04 8F 00 1E 08 00
+TX 11 05 00 1E 00 00 AA 00 00 00 00 00 00 00 00 00 00 00 00 00
+RXS 10 05 8F 00 1E 08 00
+TX 11 06 00 1E 00 00 AA 00 00 00 00 00 00 00 00 00 00 00 00 00
+RXS 10 06 8F 00 1E 08 00

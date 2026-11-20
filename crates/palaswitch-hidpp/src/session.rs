@@ -104,10 +104,6 @@ impl<T: Transport> Session<T> {
         }
     }
 
-    pub fn device_index(&self) -> u8 {
-        self.device_index
-    }
-
     pub fn into_transport(self) -> T {
         self.transport
     }
