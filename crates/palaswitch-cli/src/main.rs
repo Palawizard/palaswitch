@@ -80,7 +80,7 @@ fn run(options: &Options) -> Result<(), String> {
         ["get"] => {
             let mut mouse = first_mouse(&api, options.product_id)?;
             let sector = mouse.current_profile().map_err(|error| error.to_string())?;
-            println!("profile {}", sector & 0xFF);
+            println!("{}", describe_profile(sector));
             Ok(())
         }
         ["set", number] => set(&api, options.product_id, parse_number(number)?),
@@ -99,9 +99,26 @@ fn first_mouse(api: &HidApi, product_id: Option<u16>) -> Result<Mouse, String> {
     for skip in &skipped {
         tracing::debug!(product_id = skip.product_id, reason = %skip.reason, "skipped interface");
     }
+    let asleep = skipped
+        .iter()
+        .any(|skip| matches!(skip.reason, Error::Device(error) if error.is_unreachable()));
     mice.into_iter()
         .find(|mouse| product_id.is_none_or(|pid| mouse.product_id == pid))
-        .ok_or_else(|| "no mouse with onboard profiles found".to_owned())
+        .ok_or_else(|| {
+            if asleep {
+                "no mouse answered: move it or switch it on, then try again".to_owned()
+            } else {
+                "no mouse with onboard profiles found".to_owned()
+            }
+        })
+}
+
+fn describe_profile(sector: u16) -> String {
+    if sector & 0xFF00 == 0x0100 {
+        format!("factory profile {}", sector & 0xFF)
+    } else {
+        format!("profile {}", sector & 0xFF)
+    }
 }
 
 fn describe_connection(connection: Connection) -> String {
@@ -199,6 +216,7 @@ fn sniff(api: &HidApi, product_id: Option<u16>, secs: u64) -> Result<(), String>
 }
 
 const RESTORE_ATTEMPTS: usize = 3;
+const RESTORE_PAUSE: Duration = Duration::from_millis(500);
 
 fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), String> {
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -230,6 +248,7 @@ fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), Str
 
     let mut durations = Vec::with_capacity(count);
     let mut failures = Vec::new();
+    let mut transport_lost = false;
     for round in 0..count {
         if interrupted.load(Ordering::SeqCst) {
             println!("interrupted after {round} switches");
@@ -241,6 +260,7 @@ fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), Str
             Ok(()) => durations.push(start.elapsed()),
             Err(error @ Error::Transport(_)) => {
                 failures.push(format!("switch {}: {error}", round + 1));
+                transport_lost = true;
                 break;
             }
             Err(error) => failures.push(format!(
@@ -268,7 +288,26 @@ fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), Str
     for failure in &failures {
         println!("  {failure}");
     }
-    restore(&mut mouse, initial)?;
+    if initial == 0 {
+        println!("no profile was active at the start, nothing to restore");
+    } else if transport_lost {
+        let connection = mouse.connection;
+        let product_id = mouse.product_id;
+        drop(mouse);
+        let mut found = find_mice(api)
+            .0
+            .into_iter()
+            .find(|mouse| mouse.product_id == product_id && mouse.connection == connection)
+            .ok_or_else(|| {
+                format!(
+                    "the mouse went away; could not restore {}",
+                    describe_profile(initial)
+                )
+            })?;
+        restore(&mut found, initial)?;
+    } else {
+        restore(&mut mouse, initial)?;
+    }
     if failures.is_empty() {
         Ok(())
     } else {
@@ -278,18 +317,21 @@ fn stress(api: &HidApi, product_id: Option<u16>, count: usize) -> Result<(), Str
 
 fn restore(mouse: &mut Mouse, sector: u16) -> Result<(), String> {
     let mut last_error = None;
-    for _ in 0..RESTORE_ATTEMPTS {
+    for attempt in 0..RESTORE_ATTEMPTS {
+        if attempt > 0 {
+            std::thread::sleep(RESTORE_PAUSE);
+        }
         match mouse.switch_to(sector) {
             Ok(()) => {
-                println!("restored profile {}", sector & 0xFF);
+                println!("restored {}", describe_profile(sector));
                 return Ok(());
             }
             Err(error) => last_error = Some(error),
         }
     }
     Err(format!(
-        "could not restore profile {}: {}",
-        sector & 0xFF,
+        "could not restore {}: {}",
+        describe_profile(sector),
         last_error
             .map(|error| error.to_string())
             .unwrap_or_default()
