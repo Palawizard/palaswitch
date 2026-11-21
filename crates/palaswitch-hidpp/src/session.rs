@@ -89,6 +89,15 @@ pub fn should_retry(error: DeviceError, attempt: u8, attempts: u8) -> bool {
     error.is_retryable() && attempt < attempts
 }
 
+/// What [`Session::poll`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Polled {
+    /// Reports read, notifications or not.
+    pub reports: usize,
+    /// Notifications received since the last call, oldest first.
+    pub notifications: Vec<LongFrame>,
+}
+
 /// Requests to one HID++ 2.0 device (one device index) over a transport.
 #[derive(Debug)]
 pub struct Session<T> {
@@ -179,20 +188,26 @@ impl<T: Transport> Session<T> {
         self.notifications.drain(..).collect()
     }
 
-    /// Reads what has already arrived without sending anything, then returns
-    /// the notifications received since the last call.
-    pub fn poll_notifications(&mut self) -> Result<Vec<LongFrame>, Error> {
-        self.drain()?;
-        Ok(self.take_notifications())
+    /// Reads what has already arrived without sending anything. Answers to
+    /// our own requests are always read by the request itself, so whatever
+    /// this finds came from the device or from another program.
+    pub fn poll(&mut self) -> Result<Polled, Error> {
+        let reports = self.drain()?;
+        Ok(Polled {
+            reports,
+            notifications: self.take_notifications(),
+        })
     }
 
     /// Reads what has already arrived, so that a late answer to an earlier
     /// request cannot be taken for the next one.
-    fn drain(&mut self) -> Result<(), Error> {
+    fn drain(&mut self) -> Result<usize, Error> {
+        let mut count = 0;
         while let Some(bytes) = self.transport.read(Duration::ZERO)? {
             self.keep_if_notification(&InputReport::parse(&bytes));
+            count += 1;
         }
-        Ok(())
+        Ok(count)
     }
 
     fn await_reply(

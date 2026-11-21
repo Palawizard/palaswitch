@@ -3,6 +3,7 @@
 //! failure notifications and a few system settings.
 
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 
 use windows::Win32::Devices::HumanInterfaceDevice::GUID_DEVINTERFACE_HID;
@@ -20,9 +21,9 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE, DBT_DEVTYP_DEVICEINTERFACE,
     DEV_BROADCAST_DEVICEINTERFACE_W, DEVICE_NOTIFY_WINDOW_HANDLE, DefWindowProcW, DispatchMessageW,
-    FindWindowW, GetMessageW, HDEVNOTIFY, MSG, PostMessageW, RegisterClassW,
+    FindWindowW, GetMessageW, HDEVNOTIFY, MSG, PostMessageW, PostQuitMessage, RegisterClassW,
     RegisterDeviceNotificationW, SM_CXSMICON, TranslateMessage, UnregisterDeviceNotification,
-    WM_APP, WM_DEVICECHANGE, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
+    WM_APP, WM_CLOSE, WM_DEVICECHANGE, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -32,8 +33,11 @@ const WM_APP_WAKE: u32 = WM_APP + 1;
 const WM_APP_DEVICES: u32 = WM_APP + 2;
 const WM_APP_THEME: u32 = WM_APP + 3;
 const WM_APP_ANOTHER_INSTANCE: u32 = WM_APP + 4;
-/// `uID` tray-icon gives the first icon of the process, which is ours.
-const TRAY_ICON_ID: u32 = 1;
+/// `uID` of our tray icon. tray-icon 0.26.1 (pinned in Cargo.toml) takes it
+/// from a process-wide counter starting at 1, which `TrayIconBuilder::new`
+/// uses once for the icon's own id before `build` takes the next value for
+/// the `uID`. [`check_tray_icon`] says at start-up if this ever changes.
+const TRAY_ICON_ID: u32 = 2;
 
 /// What the hidden window tells the interface thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +55,9 @@ type Handler = Box<dyn FnMut(WindowEvent)>;
 
 thread_local! {
     static HANDLER: RefCell<Option<Handler>> = RefCell::new(None);
+    /// Events that arrived while the handler was running, handled once it
+    /// returns.
+    static PENDING: RefCell<VecDeque<WindowEvent>> = const { RefCell::new(VecDeque::new()) };
 }
 
 /// Top-level window that is never shown: unlike a message-only window, it
@@ -188,24 +195,39 @@ extern "system" fn window_proc(
         _ => None,
     };
     if let Some(event) = event {
-        let handled = HANDLER.with(|cell| match cell.try_borrow_mut() {
-            Ok(mut handler) => {
-                if let Some(handler) = handler.as_mut() {
-                    handler(event);
-                }
-                true
-            }
-            Err(_) => false,
-        });
-        if !handled {
-            // A message loop inside the handler (a menu) dispatched this:
-            // try again once the handler has returned.
-            post(hwnd, message);
-        }
+        dispatch(event);
+        return LRESULT(0);
+    }
+    if message == WM_CLOSE {
+        // Asked to close by another program (taskkill, an installer).
+        quit();
         return LRESULT(0);
     }
     // SAFETY: default handling for every other message.
     unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+}
+
+/// Runs the handler for `event`. A message loop inside the handler (a menu)
+/// can dispatch another event meanwhile: it is queued and handled right
+/// after.
+fn dispatch(event: WindowEvent) {
+    PENDING.with(|pending| pending.borrow_mut().push_back(event));
+    HANDLER.with(|cell| {
+        let Ok(mut handler) = cell.try_borrow_mut() else {
+            return;
+        };
+        while let Some(event) = PENDING.with(|pending| pending.borrow_mut().pop_front()) {
+            if let Some(handler) = handler.as_mut() {
+                handler(event);
+            }
+        }
+    });
+}
+
+/// Ends the message loop.
+pub fn quit() {
+    // SAFETY: only posts WM_QUIT to the calling thread, the interface thread.
+    unsafe { PostQuitMessage(0) };
 }
 
 fn post(hwnd: HWND, message: u32) {
@@ -285,6 +307,19 @@ pub fn notify(tray_window: *mut c_void, title: &str, message: &str) {
     if !unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) }.as_bool() {
         tracing::warn!(title, "could not show the notification");
     }
+}
+
+/// Whether Windows knows our tray icon under the window and `uID` that
+/// [`notify`] uses.
+pub fn check_tray_icon(tray_window: *mut c_void) -> bool {
+    let data = NOTIFYICONDATAW {
+        cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: HWND(tray_window),
+        uID: TRAY_ICON_ID,
+        ..Default::default()
+    };
+    // SAFETY: `data` is a filled NOTIFYICONDATAW that changes nothing.
+    unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) }.as_bool()
 }
 
 /// Copies `text` into a fixed UTF-16 buffer, leaving room for the final null.

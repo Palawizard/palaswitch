@@ -304,7 +304,7 @@ fn other_notifications_and_responses_are_not_profile_changes() {
 }
 
 #[test]
-fn polling_returns_notifications_already_received() {
+fn polling_counts_and_returns_what_already_arrived() {
     // The switch capture up to the unsolicited notification, read without
     // sending another request.
     let mut session = session([vec![onboard_lookup()], exchanges(SWITCH)[..2].to_vec()].concat());
@@ -314,14 +314,19 @@ fn polling_returns_notifications_already_received() {
         .request(onboard.feature_index(), 3, &[0x00, 0x02])
         .expect("set profile");
 
-    let first = session.poll_notifications().expect("poll");
-    let second = session.poll_notifications().expect("poll");
+    let first = session.poll().expect("poll");
+    let second = session.poll().expect("poll");
 
     assert_eq!(
         (
-            first.iter().map(LongFrame::function).collect::<Vec<_>>(),
-            second.len()
+            first.reports,
+            first
+                .notifications
+                .iter()
+                .map(LongFrame::function)
+                .collect::<Vec<_>>()
         ),
-        (vec![1], 0)
+        (1, vec![1])
     );
+    assert_eq!((second.reports, second.notifications.len()), (0, 0));
 }

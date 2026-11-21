@@ -1,6 +1,6 @@
 use hidapi::HidApi;
 use palaswitch_hidpp::features::{self, Mode, OnboardProfiles, Profile, ProfilesInfo};
-use palaswitch_hidpp::{Config, DeviceError, Error, LongFrame, Session, Transport};
+use palaswitch_hidpp::{Config, DeviceError, Error, LongFrame, Polled, Session, Transport};
 
 use crate::interface::{Collection, Interface, LOGITECH_VENDOR_ID, group_hidpp_collections};
 use crate::transport::HidTransport;
@@ -59,10 +59,9 @@ impl<T: Transport> Mouse<T> {
         self.session.take_notifications()
     }
 
-    /// Reads what has arrived without sending anything, and returns the
-    /// notifications received so far, oldest first.
-    pub fn poll_notifications(&mut self) -> Result<Vec<LongFrame>, Error> {
-        self.session.poll_notifications()
+    /// Reads what has arrived without sending anything: see [`Session::poll`].
+    pub fn poll(&mut self) -> Result<Polled, Error> {
+        self.session.poll()
     }
 
     /// Sector of the new active profile when `frame` says the profile

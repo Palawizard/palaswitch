@@ -4,11 +4,10 @@ use std::sync::mpsc::Receiver;
 
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
-use windows::Win32::UI::WindowsAndMessaging::PostQuitMessage;
 
 use crate::gdi::SystemFont;
 use crate::icon::picture;
-use crate::model::{IconKind, MenuModel, MouseState, tooltip};
+use crate::model::{Failure, IconKind, MenuModel, MouseState, tooltip};
 use crate::text::Texts;
 use crate::win;
 use crate::worker::{Command, Update, Worker};
@@ -58,6 +57,9 @@ impl App {
             .with_icon(draw(kind, size, light_taskbar)?)
             .with_menu(Box::new(menu.clone()))
             .build()?;
+        if !win::check_tray_icon(tray.window_handle()) {
+            tracing::error!("the tray icon is not where notifications are sent");
+        }
         let mut app = Self {
             texts,
             worker,
@@ -87,7 +89,9 @@ impl App {
                     self.on_ui_event(event);
                 }
             }
-            win::WindowEvent::DevicesChanged => self.worker.send(Command::DevicesChanged),
+            win::WindowEvent::DevicesChanged => {
+                self.worker.send(Command::DevicesChanged);
+            }
             win::WindowEvent::ThemeChanged => {
                 self.light_taskbar = win::light_taskbar();
                 self.show_state();
@@ -114,11 +118,10 @@ impl App {
 
     fn on_ui_event(&mut self, event: UiEvent) {
         match event {
-            UiEvent::PointerOver => self.worker.send(Command::Refresh),
-            UiEvent::Menu(id) if id == *self.quit.id() => {
-                // SAFETY: called on the thread that runs the message loop.
-                unsafe { PostQuitMessage(0) };
+            UiEvent::PointerOver => {
+                self.worker.send(Command::Refresh);
             }
+            UiEvent::Menu(id) if id == *self.quit.id() => win::quit(),
             UiEvent::Menu(id) => {
                 let sector = self
                     .profiles
@@ -128,8 +131,10 @@ impl App {
                 // The menu ticks or unticks an item when it is clicked; the
                 // tick follows the mouse instead.
                 self.show_state();
-                if let Some(sector) = sector {
-                    self.worker.send(Command::SwitchTo(sector));
+                if let Some(sector) = sector
+                    && !self.worker.send(Command::SwitchTo(sector))
+                {
+                    self.on_update(Update::SwitchFailed(Failure::Refused));
                 }
             }
         }

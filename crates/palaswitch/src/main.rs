@@ -11,6 +11,7 @@ mod worker;
 
 use std::cell::RefCell;
 use std::error::Error;
+use std::process::ExitCode;
 use std::rc::Rc;
 use std::sync::mpsc;
 
@@ -22,15 +23,32 @@ use tray::{App, UiEvent};
 use win::HiddenWindow;
 use worker::Worker;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> ExitCode {
+    // Taken before the log file is opened, so that a second launch never
+    // writes to the file of the running instance.
+    let instance = match win::lock_single_instance() {
+        Ok(Some(instance)) => instance,
+        Ok(None) => return ExitCode::SUCCESS,
+        Err(_) => return ExitCode::FAILURE,
+    };
     logs::init(logs::default_dir().as_deref());
     std::panic::set_hook(Box::new(|info| tracing::error!(%info, "panic")));
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting");
+    let result = run();
+    drop(instance);
+    match result {
+        Ok(()) => {
+            tracing::info!("quit");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            tracing::error!(%error, "could not start");
+            ExitCode::FAILURE
+        }
+    }
+}
 
-    let Some(_instance) = win::lock_single_instance()? else {
-        tracing::info!("already running, told the running instance");
-        return Ok(());
-    };
+fn run() -> Result<(), Box<dyn Error>> {
     let texts = texts(Language::from_windows_lang_id(win::ui_language_id()));
 
     let app: Rc<RefCell<Option<App>>> = Rc::new(RefCell::new(None));
@@ -70,6 +88,5 @@ fn main() -> Result<(), Box<dyn Error>> {
     // the pointer passes over it.
     app.borrow_mut().take();
     drop(window);
-    tracing::info!("quit");
     Ok(())
 }
