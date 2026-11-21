@@ -59,11 +59,8 @@ impl RotatingFile {
     }
 
     fn rotate(&mut self) -> io::Result<()> {
-        // Windows refuses to rename a file over an existing one.
-        match fs::remove_file(&self.previous) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-            _ => {}
-        }
+        // Replaces the older file in one step, so that a failed rename
+        // leaves it in place.
         fs::rename(&self.path, &self.previous)?;
         self.file = append(&self.path)?;
         self.len = 0;
