@@ -112,6 +112,8 @@ type Lines = HashMap<&'static str, Rc<RefCell<Line>>>;
 struct FakeHardware {
     present: Rc<RefCell<Vec<&'static str>>>,
     lines: Rc<RefCell<Lines>>,
+    /// Interfaces that cannot be opened for now.
+    refused: Rc<RefCell<Vec<&'static str>>>,
 }
 
 impl FakeHardware {
@@ -149,6 +151,7 @@ impl FakeHardware {
         Self {
             present: self.present.clone(),
             lines: self.lines.clone(),
+            refused: self.refused.clone(),
         }
     }
 }
@@ -176,6 +179,9 @@ impl Hardware for FakeHardware {
         _signal: ReportSignal,
     ) -> Result<Replay, TransportError> {
         let path = interface.long_path.to_str().expect("path");
+        if self.refused.borrow().contains(&path) {
+            return Err(TransportError("busy".to_owned()));
+        }
         Ok(Replay(self.lines.borrow()[path].clone()))
     }
 }
@@ -235,6 +241,25 @@ fn sleeping_mouse_is_found_again_on_refresh() {
         Some((Connection::Receiver(1), Some(1), false))
     );
     assert_eq!(hardware.unanswered(RECEIVER_PATH), 0);
+}
+
+#[test]
+fn interface_that_could_not_be_opened_is_tried_again_on_refresh() {
+    let hardware = FakeHardware::default();
+    hardware.plug(RECEIVER_PATH, receiver_finds_mouse());
+    hardware.refused.borrow_mut().push(RECEIVER_PATH);
+    let (mut thread, _) = thread(&hardware);
+    thread.rediscover();
+    let refused = thread.state();
+    hardware.refused.borrow_mut().clear();
+
+    thread.handle(Command::Refresh);
+
+    assert_eq!(refused, MouseState::Absent { asleep: false });
+    assert_eq!(
+        summary(&thread.state()),
+        Some((Connection::Receiver(1), Some(1), false))
+    );
 }
 
 #[test]

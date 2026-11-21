@@ -207,7 +207,9 @@ impl<H: Hardware> MouseThread<H> {
 
     fn handle(&mut self, command: Command) {
         match command {
-            Command::DevicesChanged => self.rediscover(),
+            Command::DevicesChanged => {
+                self.rediscover();
+            }
             Command::Refresh => self.refresh(),
             Command::SwitchTo(sector) => self.switch_to(sector),
             Command::Reports => self.read_reports(),
@@ -226,19 +228,20 @@ impl<H: Hardware> MouseThread<H> {
     }
 
     /// Drops the interfaces that went away and opens the new ones; the ones
-    /// still there keep their transport.
-    fn rediscover(&mut self) {
-        self.rediscover_after(self.active_path());
+    /// still there keep their transport. Returns the interfaces opened, whose
+    /// profiles were read on the way.
+    fn rediscover(&mut self) -> Vec<CString> {
+        self.rediscover_after(self.active_path())
     }
 
     /// [`Self::rediscover`], then reads the profiles again when the mouse in
     /// use is no longer the one at `before` and was already open.
-    fn rediscover_after(&mut self, before: Option<CString>) {
+    fn rediscover_after(&mut self, before: Option<CString>) -> Vec<CString> {
         let present = match self.hardware.interfaces() {
             Ok(present) => present,
             Err(error) => {
                 tracing::warn!(%error, "could not list HID devices");
-                return;
+                return Vec::new();
             }
         };
         self.links.retain(|link| {
@@ -274,6 +277,7 @@ impl<H: Hardware> MouseThread<H> {
         {
             self.read_mouse(index);
         }
+        opened
     }
 
     fn open(&mut self, interface: &Interface) -> Option<Link<H::Transport>> {
@@ -317,25 +321,26 @@ impl<H: Hardware> MouseThread<H> {
         self.active().map(|index| self.links[index].path.clone())
     }
 
+    /// Lists the interfaces again (an interface that failed to open is
+    /// tried again), probes the ones whose mouse may have woken up, then
+    /// reads the mouse in use.
     fn refresh(&mut self) {
-        let mut probed = Vec::new();
-        let mut index = 0;
-        while index < self.links.len() {
-            let waiting = matches!(
-                &self.links[index].device,
-                Device::Idle { reason, .. } if may_wake(reason)
-            );
-            if waiting {
-                probed.push(self.links[index].path.clone());
-                if self.reprobe(index) == Kept::Removed {
-                    continue;
-                }
+        let mut fresh = self.rediscover();
+        let probed: Vec<CString> = self
+            .links
+            .iter()
+            .filter(|link| matches!(&link.device, Device::Idle { reason, .. } if may_wake(reason)))
+            .map(|link| link.path.clone())
+            .collect();
+        for path in probed {
+            if let Some(index) = self.links.iter().position(|link| link.path == path) {
+                self.reprobe(index);
             }
-            index += 1;
+            fresh.push(path);
         }
-        // A mouse found by probing again was read just now.
+        // A mouse opened or probed again just now has been read already.
         if let Some(index) = self.active()
-            && !probed.contains(&self.links[index].path)
+            && !fresh.contains(&self.links[index].path)
         {
             self.read_mouse(index);
         }

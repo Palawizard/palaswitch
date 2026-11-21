@@ -15,8 +15,8 @@ use std::process::ExitCode;
 use std::rc::Rc;
 use std::sync::mpsc;
 
-use tray_icon::TrayIconEvent;
 use tray_icon::menu::MenuEvent;
+use tray_icon::{MouseButtonState, TrayIconEvent};
 
 use text::{Language, texts};
 use tray::{App, UiEvent};
@@ -69,7 +69,17 @@ fn run() -> Result<(), Box<dyn Error>> {
         doorbell.ring();
     }));
     TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
-        if let TrayIconEvent::Enter { .. } = event {
+        // The pointer coming over the icon is not always reported: a press
+        // on the icon, which comes before the menu opens, also counts.
+        let menu_coming = matches!(
+            event,
+            TrayIconEvent::Enter { .. }
+                | TrayIconEvent::Click {
+                    button_state: MouseButtonState::Down,
+                    ..
+                }
+        );
+        if menu_coming {
             let _ = ui_sender.send(UiEvent::PointerOver);
             doorbell.ring();
         }
