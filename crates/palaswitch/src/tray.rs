@@ -134,8 +134,9 @@ impl App {
     /// Shortcuts of the settings that another program already holds.
     fn taken_shortcuts(&self) -> Vec<String> {
         self.conflicts
-            .keys()
-            .filter_map(|sector| {
+            .iter()
+            .filter(|(_, conflict)| **conflict == Conflict::Taken)
+            .filter_map(|(sector, _)| {
                 let shortcut = self.settings.profiles.get(sector)?.shortcut?;
                 Some(shortcut.shown(self.texts))
             })

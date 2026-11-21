@@ -115,6 +115,8 @@ pub enum ShortcutProblem {
     UsedBy(String),
     /// Windows says another program holds it.
     Taken,
+    /// Windows refused it for another reason.
+    RefusedByWindows,
 }
 
 impl ShortcutProblem {
@@ -122,8 +124,10 @@ impl ShortcutProblem {
         match self {
             Self::Refused(Refusal::NeedsModifier) => texts.shortcut_needs_modifier.to_owned(),
             Self::Refused(Refusal::WinKey) => texts.shortcut_win_key.to_owned(),
+            Self::Refused(Refusal::Reserved) => texts.shortcut_reserved.to_owned(),
             Self::UsedBy(name) => texts.shortcut_used_by.replace("{name}", name),
             Self::Taken => texts.shortcut_taken.to_owned(),
+            Self::RefusedByWindows => texts.shortcut_windows_refused.to_owned(),
         }
     }
 }
@@ -291,6 +295,8 @@ mod tests {
             ShortcutProblem::Refused(Refusal::WinKey),
             ShortcutProblem::UsedBy("Jeu".to_owned()),
             ShortcutProblem::Taken,
+            ShortcutProblem::Refused(Refusal::Reserved),
+            ShortcutProblem::RefusedByWindows,
         ]
         .map(|problem| problem.message(texts));
 

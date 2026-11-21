@@ -242,7 +242,13 @@ pub enum Refusal {
     NeedsModifier,
     /// Windows keeps the Win key combinations for itself.
     WinKey,
+    /// Windows uses it everywhere: taking it would break it in every app.
+    Reserved,
 }
+
+/// Combinations Windows uses in every app, which a global shortcut would
+/// take away from them, in the settings file form.
+const RESERVED: &[&str] = &["Alt+F4", "Alt+Space", "Ctrl+Alt+Delete"];
 
 impl Shortcut {
     pub fn check(self) -> Result<Self, Refusal> {
@@ -252,6 +258,9 @@ impl Shortcut {
         let only_shift = !self.mods.ctrl && !self.mods.alt;
         if only_shift && !self.key.is_spare_function_key() {
             return Err(Refusal::NeedsModifier);
+        }
+        if RESERVED.contains(&self.to_string().as_str()) {
+            return Err(Refusal::Reserved);
         }
         Ok(self)
     }
@@ -397,8 +406,18 @@ mod tests {
 
     #[test]
     fn keys_without_ctrl_or_alt_are_refused_except_spare_function_keys() {
-        let checks = ["A", "Shift+A", "Shift+F1", "F13", "Alt+A", "Ctrl+Win+A"]
-            .map(|text| shortcut(text).check().map(|_| ()));
+        let checks = [
+            "A",
+            "Shift+A",
+            "Shift+F1",
+            "F13",
+            "Alt+A",
+            "Ctrl+Win+A",
+            "Alt+F4",
+            "Alt+Space",
+            "Ctrl+Alt+Delete",
+        ]
+        .map(|text| shortcut(text).check().map(|_| ()));
 
         assert_eq!(
             checks,
@@ -408,7 +427,10 @@ mod tests {
                 Err(Refusal::NeedsModifier),
                 Ok(()),
                 Ok(()),
-                Err(Refusal::WinKey)
+                Err(Refusal::WinKey),
+                Err(Refusal::Reserved),
+                Err(Refusal::Reserved),
+                Err(Refusal::Reserved)
             ]
         );
     }

@@ -5,8 +5,9 @@ use std::time::Instant;
 use super::App;
 use crate::autostart::RUN_KEY;
 use crate::config::{self, Settings};
+use crate::hotkeys::Conflict;
 use crate::model::{MouseState, profile_label};
-use crate::settings_view::{View, clear_shortcut, give_shortcut, rename};
+use crate::settings_view::{ShortcutProblem, View, clear_shortcut, give_shortcut, rename};
 use crate::settings_window::{SettingsEvent, SettingsWindow};
 use crate::shortcut::Shortcut;
 use crate::shortcut_field::FieldEvent;
@@ -117,9 +118,14 @@ impl App {
                     .as_mut()
                     .map(|hotkeys| hotkeys.apply(&settings))
                     .unwrap_or_default();
-                if conflicts.contains_key(&sector) {
+                let problem = match conflicts.get(&sector) {
+                    Some(Conflict::Taken) => Some(ShortcutProblem::Taken),
+                    Some(Conflict::Refused) => Some(ShortcutProblem::RefusedByWindows),
+                    None => None,
+                };
+                if let Some(problem) = problem {
                     self.register_shortcuts();
-                    Some(crate::settings_view::ShortcutProblem::Taken.message(self.texts))
+                    Some(problem.message(self.texts))
                 } else {
                     self.settings = settings;
                     self.conflicts = conflicts;
