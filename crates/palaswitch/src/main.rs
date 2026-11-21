@@ -1,10 +1,12 @@
 #![windows_subsystem = "windows"]
 
+mod capture;
 mod gdi;
 mod hardware;
 mod icon;
 mod logs;
 mod model;
+mod shortcut;
 mod text;
 mod tray;
 mod win;
