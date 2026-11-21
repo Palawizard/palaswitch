@@ -14,7 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::HSTRING;
 
-use crate::capture::{Capture, Step};
+use crate::capture::{Capture, KeyMessage, Releasing, Step};
 use crate::shortcut::{Mods, mods_shown};
 use crate::text::Texts;
 
@@ -30,10 +30,9 @@ struct Listening {
 
 thread_local! {
     static LISTENING: Cell<Option<Listening>> = const { Cell::new(None) };
-    /// Set once a shortcut is typed, until its key is released: the
-    /// character it produces must not reach the button (a beep, or the
-    /// system menu after Alt+Space).
-    static SWALLOW_CHARS: Cell<bool> = const { Cell::new(false) };
+    /// The key that ended the last capture, until it is released: its
+    /// repeats and its character must not reach the button or the window.
+    static RELEASING: Cell<Option<Releasing>> = const { Cell::new(None) };
 }
 
 /// What a field tells its window.
@@ -141,11 +140,25 @@ extern "system" fn field_proc(
         .with(Cell::get)
         .filter(|listening| listening.field == hwnd.0 as isize);
     let Some(mut listening) = listening else {
-        if SWALLOW_CHARS.with(Cell::get) {
-            match message {
-                WM_CHAR | WM_SYSCHAR => return LRESULT(0),
-                WM_KEYUP | WM_SYSKEYUP => SWALLOW_CHARS.with(|cell| cell.set(false)),
-                _ => {}
+        if let Some(held) = RELEASING.with(Cell::get) {
+            let key = wparam.0 as u16;
+            let message = match message {
+                WM_GETDLGCODE => return LRESULT(DLGC_WANTALLKEYS as isize),
+                WM_KEYDOWN | WM_SYSKEYDOWN => Some(KeyMessage::Down(key)),
+                WM_KEYUP | WM_SYSKEYUP => Some(KeyMessage::Up(key)),
+                WM_CHAR | WM_SYSCHAR => Some(KeyMessage::Char),
+                WM_KILLFOCUS => {
+                    RELEASING.with(|cell| cell.set(None));
+                    None
+                }
+                _ => None,
+            };
+            if let Some(message) = message {
+                let (swallow, still) = held.on(message);
+                RELEASING.with(|cell| cell.set(still));
+                if swallow {
+                    return LRESULT(0);
+                }
             }
         }
         // SAFETY: default handling of a field that is not listening.
@@ -181,11 +194,12 @@ extern "system" fn field_proc(
         }
         Step::Done(shortcut) => {
             stop_listening();
-            SWALLOW_CHARS.with(|cell| cell.set(true));
+            RELEASING.with(|cell| cell.set(Some(Releasing(vk))));
             report(FieldEvent::Typed(listening.sector, shortcut));
         }
         Step::Cancelled => {
             stop_listening();
+            RELEASING.with(|cell| cell.set(Some(Releasing(vk))));
             report(FieldEvent::Stopped(listening.sector));
         }
         Step::Left => {

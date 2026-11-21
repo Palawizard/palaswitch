@@ -39,6 +39,34 @@ pub enum Step {
     Ignored,
 }
 
+/// A key message reaching a field that just stopped listening.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyMessage {
+    Down(u16),
+    Up(u16),
+    Char,
+}
+
+/// The key that ended a capture, until it is released: held a little
+/// longer, it repeats, and a repeated Escape would close the window or a
+/// repeated Space press the field again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Releasing(pub u16);
+
+impl Releasing {
+    /// Whether the field swallows `message`, and what it still waits for.
+    pub fn on(self, message: KeyMessage) -> (bool, Option<Self>) {
+        match message {
+            KeyMessage::Down(vk) if vk == self.0 => (true, Some(self)),
+            // Another key: the user moved on.
+            KeyMessage::Down(_) => (false, None),
+            KeyMessage::Up(vk) if vk == self.0 => (true, None),
+            KeyMessage::Up(_) => (false, Some(self)),
+            KeyMessage::Char => (true, Some(self)),
+        }
+    }
+}
+
 /// The field while it listens for a shortcut.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Capture {
@@ -172,6 +200,23 @@ mod tests {
 
         assert_eq!(capture.key_up(VK_CAPITAL), Step::Ignored);
         assert!(matches!(capture.key_down(VK_F1), Step::Done(_)));
+    }
+
+    #[test]
+    fn the_final_key_is_swallowed_until_released() {
+        let held = Releasing(VK_ESCAPE);
+
+        let repeat = held.on(KeyMessage::Down(VK_ESCAPE));
+        let character = held.on(KeyMessage::Char);
+        let modifier_up = held.on(KeyMessage::Up(VK_LCONTROL));
+        let released = held.on(KeyMessage::Up(VK_ESCAPE));
+        let other = held.on(KeyMessage::Down(VK_F1));
+
+        assert_eq!(repeat, (true, Some(held)));
+        assert_eq!(character, (true, Some(held)));
+        assert_eq!(modifier_up, (false, Some(held)));
+        assert_eq!(released, (true, None));
+        assert_eq!(other, (false, None));
     }
 
     #[test]
