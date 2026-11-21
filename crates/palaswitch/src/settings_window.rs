@@ -49,8 +49,8 @@ const SS_NOPREFIX: WINDOW_STYLE = WINDOW_STYLE(0x0080);
 // Layout in device-independent pixels.
 const MARGIN: i32 = 20;
 const CONTENT_WIDTH: i32 = 440;
-const NAME_WIDTH: i32 = 196;
-const FIELD_WIDTH: i32 = 160;
+const NAME_WIDTH: i32 = 170;
+const FIELD_WIDTH: i32 = 186;
 const GAP: i32 = 8;
 const CONTROL_HEIGHT: i32 = 28;
 /// A single-line edit draws its text at the top: it gets the height of its
@@ -247,6 +247,12 @@ impl SettingsWindow {
             if let Some(sector) = shortcut_field::stop_listening() {
                 report_field(FieldEvent::Stopped(sector));
             }
+            // SAFETY: reads which control has the keyboard focus.
+            let focused = unsafe { GetFocus() };
+            let focus_lost = self
+                .rows
+                .iter()
+                .any(|row| [row.name, row.field, row.clear].contains(&focused));
             for controls in self.rows.drain(..) {
                 for control in [controls.name, controls.field, controls.clear] {
                     // SAFETY: child controls of ours, not used after.
@@ -255,6 +261,9 @@ impl SettingsWindow {
             }
             self.rows = view.rows.iter().map(|row| self.create_row(row)).collect();
             self.apply_fonts_and_styles();
+            if focus_lost {
+                self.focus_first();
+            }
         }
         for (controls, row) in self.rows.iter().zip(&view.rows) {
             self.show_row(controls, row);
@@ -328,8 +337,14 @@ impl SettingsWindow {
         if !shortcut_field::is_listening(controls.field) {
             set_text(controls.field, &shown);
         }
-        // SAFETY: enables or disables our own button.
-        let _ = unsafe { EnableWindow(controls.clear, row.shortcut.is_some()) };
+        // SAFETY: moves the focus off a button about to be disabled, then
+        // enables or disables it; all are controls of ours.
+        unsafe {
+            if row.shortcut.is_none() && GetFocus() == controls.clear {
+                let _ = SetFocus(Some(controls.field));
+            }
+            let _ = EnableWindow(controls.clear, row.shortcut.is_some());
+        }
     }
 
     /// Shows a line about the last refused shortcut, or nothing.
@@ -459,8 +474,9 @@ impl SettingsWindow {
             place(row.clear, clear_x, y, clear_width, CONTROL_HEIGHT);
             y += ROW_STEP;
         }
-        place(self.message, MARGIN, y, CONTENT_WIDTH, LINE_HEIGHT);
-        y += LINE_HEIGHT + GAP;
+        // Two lines: a list of several taken shortcuts wraps.
+        place(self.message, MARGIN, y, CONTENT_WIDTH, 2 * LINE_HEIGHT);
+        y += 2 * LINE_HEIGHT + GAP;
         place(self.start, MARGIN, y, CONTENT_WIDTH, CONTROL_HEIGHT);
         y += CONTROL_HEIGHT + MARGIN;
         self.resize_client(MARGIN * 2 + CONTENT_WIDTH, y);
