@@ -148,9 +148,7 @@ impl App {
         let Ok(exe) = std::env::current_exe() else {
             return;
         };
-        if !RUN_KEY.is_enabled(&exe)
-            && let Err(error) = RUN_KEY.set(&exe, true)
-        {
+        if let Err(error) = RUN_KEY.restore(&exe) {
             tracing::warn!(%error, "could not restore start with Windows");
         }
     }
