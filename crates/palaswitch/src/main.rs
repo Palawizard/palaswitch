@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod autostart;
 mod capture;
 mod config;
 mod gdi;
