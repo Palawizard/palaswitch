@@ -179,6 +179,13 @@ impl<T: Transport> Session<T> {
         self.notifications.drain(..).collect()
     }
 
+    /// Reads what has already arrived without sending anything, then returns
+    /// the notifications received since the last call.
+    pub fn poll_notifications(&mut self) -> Result<Vec<LongFrame>, Error> {
+        self.drain()?;
+        Ok(self.take_notifications())
+    }
+
     /// Reads what has already arrived, so that a late answer to an earlier
     /// request cannot be taken for the next one.
     fn drain(&mut self) -> Result<(), Error> {

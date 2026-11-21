@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use common::{ScriptedTransport, exchanges, line_bytes};
 use palaswitch_hidpp::features::{OnboardProfiles, device_name};
-use palaswitch_hidpp::{Config, DeviceError, Error, Session};
+use palaswitch_hidpp::{Config, DeviceError, Error, LongFrame, Session};
 
 const ERRORS: &str = include_str!("fixtures/g502x-plus-lightspeed-errors.txt");
 const FOREIGN: &str = include_str!("fixtures/g502x-plus-lightspeed-foreign.txt");
@@ -285,5 +285,43 @@ fn missing_feature_is_reported_as_not_supported() {
     assert_eq!(
         session.feature_index(0x1234),
         Err(Error::FeatureNotSupported(0x1234))
+    );
+}
+
+#[test]
+fn other_notifications_and_responses_are_not_profile_changes() {
+    // The unsolicited notification of the switch capture (feature index
+    // 0x09, function 1) and the getInfo response of the read capture
+    // (feature index 0x0B, function 0, software ID 0x0E).
+    let mut session = session(vec![onboard_lookup()]);
+    let onboard = OnboardProfiles::find(&mut session).expect("feature");
+    let frames = [line_bytes(SWITCH, 4), line_bytes(READ, 3)]
+        .map(|bytes| LongFrame::parse(&bytes).expect("long frame"));
+
+    let changes = frames.map(|frame| onboard.changed_profile(&frame));
+
+    assert_eq!(changes, [None, None]);
+}
+
+#[test]
+fn polling_returns_notifications_already_received() {
+    // The switch capture up to the unsolicited notification, read without
+    // sending another request.
+    let mut session = session([vec![onboard_lookup()], exchanges(SWITCH)[..2].to_vec()].concat());
+    let onboard = OnboardProfiles::find(&mut session).expect("feature");
+    onboard.set_onboard_mode(&mut session).expect("mode");
+    session
+        .request(onboard.feature_index(), 3, &[0x00, 0x02])
+        .expect("set profile");
+
+    let first = session.poll_notifications().expect("poll");
+    let second = session.poll_notifications().expect("poll");
+
+    assert_eq!(
+        (
+            first.iter().map(LongFrame::function).collect::<Vec<_>>(),
+            second.len()
+        ),
+        (vec![1], 0)
     );
 }

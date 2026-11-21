@@ -1,6 +1,7 @@
 //! HID++ 2.0 features used by palaswitch: device name (0x0005) and onboard
 //! profiles (0x8100).
 
+use crate::frame::LongFrame;
 use crate::session::{Error, Session};
 use crate::transport::Transport;
 
@@ -128,6 +129,16 @@ impl OnboardProfiles {
 
     pub fn feature_index(&self) -> u8 {
         self.feature_index
+    }
+
+    /// Sector of the new active profile when `frame` is the notification
+    /// this feature sends after the profile changed on the device itself.
+    pub fn changed_profile(&self, frame: &LongFrame) -> Option<u16> {
+        let params = frame.params();
+        (frame.feature_index() == self.feature_index
+            && frame.function() == PROFILE_CHANGED_EVENT
+            && frame.software_id() == 0)
+            .then(|| u16::from_be_bytes([params[0], params[1]]))
     }
 
     pub fn info<T: Transport>(&self, session: &mut Session<T>) -> Result<ProfilesInfo, Error> {
