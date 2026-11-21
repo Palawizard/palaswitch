@@ -36,6 +36,8 @@ pub enum Failure {
     Asleep,
     NoMouse,
     Refused,
+    /// The mouse thread is gone; only a restart helps.
+    Stopped,
 }
 
 impl Failure {
@@ -53,6 +55,7 @@ impl Failure {
             Self::Asleep => texts.switch_failed_asleep,
             Self::NoMouse => texts.switch_failed_no_mouse,
             Self::Refused => texts.switch_failed_other,
+            Self::Stopped => texts.switch_failed_stopped,
         }
     }
 }

@@ -33,6 +33,7 @@ pub struct Texts {
     pub switch_failed_asleep: &'static str,
     pub switch_failed_no_mouse: &'static str,
     pub switch_failed_other: &'static str,
+    pub switch_failed_stopped: &'static str,
 }
 
 impl Texts {
@@ -60,6 +61,7 @@ static FRENCH: Texts = Texts {
     switch_failed_asleep: "Bouge ou rallume la souris, puis réessaie.",
     switch_failed_no_mouse: "Souris introuvable. Rebranche-la ou rebranche le récepteur.",
     switch_failed_other: "La souris a refusé le changement. Réessaie.",
+    switch_failed_stopped: "palaswitch ne répond plus. Quitte-le et relance-le.",
 };
 
 static ENGLISH: Texts = Texts {
@@ -73,6 +75,7 @@ static ENGLISH: Texts = Texts {
     switch_failed_asleep: "Move the mouse or switch it on, then try again.",
     switch_failed_no_mouse: "Mouse not found. Plug it or its receiver back in.",
     switch_failed_other: "The mouse refused the change. Try again.",
+    switch_failed_stopped: "palaswitch stopped responding. Quit it and start it again.",
 };
 
 #[cfg(test)]
@@ -117,6 +120,7 @@ mod tests {
                 texts.switch_failed_asleep,
                 texts.switch_failed_no_mouse,
                 texts.switch_failed_other,
+                texts.switch_failed_stopped,
             ];
             assert!(all.iter().all(|text| !text.trim().is_empty()));
         }

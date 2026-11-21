@@ -131,10 +131,13 @@ impl App {
                 // The menu ticks or unticks an item when it is clicked; the
                 // tick follows the mouse instead.
                 self.show_state();
-                if let Some(sector) = sector
-                    && !self.worker.send(Command::SwitchTo(sector))
-                {
-                    self.on_update(Update::SwitchFailed(Failure::Refused));
+                match sector {
+                    Some(sector) => {
+                        if !self.worker.send(Command::SwitchTo(sector)) {
+                            self.on_update(Update::SwitchFailed(Failure::Stopped));
+                        }
+                    }
+                    None => tracing::info!(?id, "menu entry no longer shown"),
                 }
             }
         }
