@@ -340,6 +340,53 @@ fn receiver_is_read_again_when_the_cable_fails_before_windows_says_it_is_gone() 
 }
 
 #[test]
+fn switch_makes_the_profile_active() {
+    // The switch capture: setOnboardMode, setCurrentProfile(2) followed by an
+    // unsolicited notification, then getCurrentProfile answering 2.
+    let hardware = FakeHardware::default();
+    hardware.plug(RECEIVER_PATH, receiver_finds_mouse());
+    let (mut thread, updates) = thread(&hardware);
+    thread.rediscover();
+    hardware.script(RECEIVER_PATH, exchanges(SWITCH)[..3].to_vec());
+
+    thread.handle(Command::SwitchTo(2));
+
+    assert_eq!(updates.try_iter().count(), 0);
+    assert_eq!(
+        summary(&thread.state()),
+        Some((Connection::Receiver(1), Some(2), false))
+    );
+    assert_eq!(hardware.unanswered(RECEIVER_PATH), 0);
+}
+
+#[test]
+fn switch_the_mouse_did_not_apply_shows_the_profile_it_kept() {
+    // Assembled to stand for a mouse that keeps its profile: the answers to
+    // setOnboardMode and setCurrentProfile(2), then the getCurrentProfile
+    // answer saying profile 1, taken from the switch back to profile 1.
+    let switch = exchanges(SWITCH);
+    let hardware = FakeHardware::default();
+    hardware.plug(RECEIVER_PATH, receiver_finds_mouse());
+    let (mut thread, updates) = thread(&hardware);
+    thread.rediscover();
+    hardware.script(
+        RECEIVER_PATH,
+        vec![switch[0].clone(), switch[1].clone(), switch[5].clone()],
+    );
+
+    thread.handle(Command::SwitchTo(2));
+
+    assert_eq!(
+        updates.try_iter().collect::<Vec<_>>(),
+        [Update::SwitchFailed(Failure::Refused)]
+    );
+    assert_eq!(
+        summary(&thread.state()),
+        Some((Connection::Receiver(1), Some(1), false))
+    );
+}
+
+#[test]
 fn switch_on_a_sleeping_mouse_says_to_wake_it() {
     let hardware = FakeHardware::default();
     hardware.plug(RECEIVER_PATH, receiver_finds_mouse());
