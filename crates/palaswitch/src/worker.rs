@@ -15,7 +15,7 @@ use palaswitch_device::{
     Connection, HidApi, HidTransport, Interface, Mouse, NotFound, ReportSignal, hidpp_interfaces,
 };
 use palaswitch_hidpp::features::Profile;
-use palaswitch_hidpp::{Error, Transport, TransportError};
+use palaswitch_hidpp::{Error, InputReport, SOFTWARE_ID, Transport, TransportError};
 
 use crate::model::{Failure, MouseState, MouseView};
 
@@ -418,7 +418,12 @@ impl<H: Hardware> MouseThread<H> {
                 let mut reports = 0;
                 loop {
                     match transport.read(Duration::ZERO) {
-                        Ok(Some(_)) => reports += 1,
+                        Ok(Some(bytes)) => {
+                            // A late answer to our own probe is no sign of life.
+                            if InputReport::parse(&bytes).software_id() != Some(SOFTWARE_ID) {
+                                reports += 1;
+                            }
+                        }
                         Ok(None) => break,
                         Err(error) => return self.handle_error(index, &Error::Transport(error)),
                     }

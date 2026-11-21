@@ -330,3 +330,17 @@ fn polling_counts_and_returns_what_already_arrived() {
     );
     assert_eq!((second.reports, second.notifications.len()), (0, 0));
 }
+
+#[test]
+fn polling_does_not_count_late_answers_to_our_own_requests() {
+    // Assembled: reports waiting before any request. Our getInfo answer
+    // (software ID 0x0E, read capture), as if it came after a timeout, and
+    // the same answer for software ID 0x0D (foreign capture).
+    let transport = ScriptedTransport::new(Vec::new())
+        .with_pending(vec![line_bytes(READ, 3), line_bytes(FOREIGN, 3)]);
+    let mut session = Session::new(transport, 0x01, config());
+
+    let polled = session.poll().expect("poll");
+
+    assert_eq!((polled.reports, polled.notifications.len()), (1, 0));
+}
