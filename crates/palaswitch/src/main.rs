@@ -5,6 +5,7 @@ mod icon;
 mod logs;
 mod model;
 mod text;
+mod worker;
 
 use std::error::Error;
 
