@@ -15,13 +15,13 @@ use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_PUSHBUTTON, CreateWindowExW,
-    DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, GetCursorPos, GetWindowTextW, HMENU, IDCANCEL,
-    IsWindow, RegisterClassW, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW,
-    SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE,
-    WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY,
-    WM_DPICHANGED, WM_ERASEBKGND, WM_NOTIFY, WM_SETFONT, WNDCLASSW, WS_CAPTION, WS_CHILD,
-    WS_EX_CLIENTEDGE, WS_EX_CONTROLPARENT, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
-    WS_VISIBLE,
+    DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, GetCursorPos, GetWindowTextW, HMENU, IDC_ARROW,
+    IDCANCEL, IsIconic, IsWindow, LoadCursorW, RegisterClassW, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE,
+    SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
+    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_NOTIFY, WM_SETFONT, WNDCLASSW,
+    WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE, WS_EX_CONTROLPARENT, WS_MINIMIZEBOX, WS_OVERLAPPED,
+    WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{HSTRING, PCWSTR, w};
 
@@ -134,8 +134,14 @@ impl SettingsWindow {
             lpfnWndProc: Some(window_proc),
             hInstance: instance.into(),
             lpszClassName: CLASS_NAME,
+            // SAFETY: loads the standard arrow cursor shared by the system.
+            hCursor: unsafe { LoadCursorW(None, IDC_ARROW) }?,
             ..Default::default()
         };
+        let origin = cursor_work_area().map_or(POINT::default(), |area| POINT {
+            x: area.left,
+            y: area.top,
+        });
         // SAFETY: registers our class once; later calls fail harmlessly
         // because it already exists.
         unsafe { RegisterClassW(&class) };
@@ -146,8 +152,10 @@ impl SettingsWindow {
                 CLASS_NAME,
                 &HSTRING::from(texts.settings_title),
                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                0,
-                0,
+                // Created on the monitor of the pointer, so that it is laid
+                // out at that monitor's scale from the start.
+                origin.x,
+                origin.y,
                 0,
                 0,
                 None,
@@ -209,9 +217,14 @@ impl SettingsWindow {
 
     /// Brings the open window to the front.
     pub fn raise(&self) {
-        // SAFETY: our own window.
+        // SAFETY: our own window, restored first if it was minimised.
         unsafe {
-            let _ = ShowWindow(self.hwnd, SW_SHOW);
+            let show = if IsIconic(self.hwnd).as_bool() {
+                SW_RESTORE
+            } else {
+                SW_SHOW
+            };
+            let _ = ShowWindow(self.hwnd, show);
             let _ = SetForegroundWindow(self.hwnd);
         }
     }
@@ -337,8 +350,10 @@ impl SettingsWindow {
     /// Follows a change of the window's DPI: new fonts, new positions.
     pub fn rescale(&mut self, dpi: u32) {
         self.dpi = dpi.max(96);
-        self.fonts = Fonts::new(self.dpi);
+        // The old fonts are deleted only once no control uses them.
+        let old = std::mem::replace(&mut self.fonts, Fonts::new(self.dpi));
         self.apply_fonts_and_styles();
+        drop(old);
         self.layout();
     }
 
@@ -483,22 +498,14 @@ impl SettingsWindow {
     /// Centres the window on the work area of the monitor under the pointer,
     /// where the tray menu was just used.
     fn place_on_cursor_monitor(&self) {
-        let mut cursor = POINT::default();
-        // SAFETY: plain queries about the pointer, its monitor and our window.
+        let Some(area) = cursor_work_area() else {
+            return;
+        };
+        // SAFETY: plain queries about our window, then a move of it.
         unsafe {
-            let _ = GetCursorPos(&mut cursor);
-            let monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
-            let mut info = MONITORINFO {
-                cbSize: size_of::<MONITORINFO>() as u32,
-                ..Default::default()
-            };
-            if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-                return;
-            }
             let mut window = RECT::default();
             let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(self.hwnd, &mut window);
             let (width, height) = (window.right - window.left, window.bottom - window.top);
-            let area = info.rcWork;
             let x = area.left + (area.right - area.left - width) / 2;
             let y = area.top + (area.bottom - area.top - height) / 2;
             let _ = SetWindowPos(
@@ -536,6 +543,23 @@ impl Drop for SettingsWindow {
             SILENT.with(|cell| cell.set(false));
         }
         PAINT.with(|cell| cell.set(None));
+    }
+}
+
+/// Work area of the monitor under the pointer.
+fn cursor_work_area() -> Option<RECT> {
+    let mut cursor = POINT::default();
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: plain queries about the pointer and its monitor, into locals.
+    unsafe {
+        GetCursorPos(&mut cursor).ok()?;
+        let monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+        GetMonitorInfoW(monitor, &mut info)
+            .as_bool()
+            .then_some(info.rcWork)
     }
 }
 
