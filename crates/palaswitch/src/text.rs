@@ -55,9 +55,9 @@ static FRENCH: Texts = Texts {
     factory_profile: "Profil d’usine {n}",
     searching: "Recherche de la souris…",
     no_mouse: "Souris introuvable",
-    mouse_asleep: "Souris en veille : bouge-la",
+    mouse_asleep: "Souris en veille ou éteinte",
     switch_failed_title: "Profil inchangé",
-    switch_failed_asleep: "Bouge la souris pour la réveiller, puis réessaie.",
+    switch_failed_asleep: "Bouge ou rallume la souris, puis réessaie.",
     switch_failed_no_mouse: "Souris introuvable. Rebranche-la ou rebranche le récepteur.",
     switch_failed_other: "La souris a refusé le changement. Réessaie.",
 };
@@ -68,9 +68,9 @@ static ENGLISH: Texts = Texts {
     factory_profile: "Factory profile {n}",
     searching: "Looking for the mouse…",
     no_mouse: "Mouse not found",
-    mouse_asleep: "Mouse asleep: move it",
+    mouse_asleep: "Mouse asleep or switched off",
     switch_failed_title: "Profile not changed",
-    switch_failed_asleep: "Move the mouse to wake it up, then try again.",
+    switch_failed_asleep: "Move the mouse or switch it on, then try again.",
     switch_failed_no_mouse: "Mouse not found. Plug it or its receiver back in.",
     switch_failed_other: "The mouse refused the change. Try again.",
 };
