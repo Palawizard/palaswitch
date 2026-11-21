@@ -254,10 +254,12 @@ mod tests {
     }
 
     #[test]
-    fn list_texts_have_their_list_in_both_languages() {
+    fn texts_with_a_value_have_its_place_in_both_languages() {
         for texts in [&FRENCH, &ENGLISH] {
             assert!(texts.shortcut_taken_message.contains("{list}"));
             assert!(texts.shortcut_taken_here.contains("{list}"));
+            assert!(texts.settings_active.contains("{name}"));
+            assert!(texts.shortcut_used_by.contains("{name}"));
         }
     }
 

@@ -83,3 +83,56 @@ impl Hotkeys {
         self.registered.get(&hotkey_id).map(|&(_, sector)| sector)
     }
 }
+
+impl Drop for Hotkeys {
+    fn drop(&mut self) {
+        for (_, (hotkey, _)) in self.registered.drain() {
+            let _ = self.manager.unregister(hotkey);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::parse;
+
+    /// Settings with one combination nobody types, registered for a
+    /// moment only; each test takes its own so that they can run together.
+    fn rare(key: &str) -> crate::config::Settings {
+        parse(&format!(
+            "[[profile]]\nsector = 1\nshortcut = \"Ctrl+Alt+Shift+{key}\""
+        ))
+        .expect("settings")
+    }
+
+    #[test]
+    fn a_shortcut_held_by_another_program_is_reported_taken() {
+        let settings = rare("F24");
+        let mut first = Hotkeys::new().expect("manager");
+        let mut second = Hotkeys::new().expect("manager");
+
+        let first_conflicts = first.apply(&settings);
+        let second_conflicts = second.apply(&settings);
+
+        assert!(first_conflicts.is_empty());
+        assert_eq!(second_conflicts.get(&1), Some(&Conflict::Taken));
+        assert_eq!(
+            first.sector(settings.profiles[&1].shortcut.unwrap().hotkey().id()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn applying_again_releases_the_previous_shortcuts() {
+        let settings = rare("F23");
+        let mut first = Hotkeys::new().expect("manager");
+        let mut second = Hotkeys::new().expect("manager");
+        first.apply(&settings);
+
+        first.apply(&crate::config::Settings::default());
+        let conflicts = second.apply(&settings);
+
+        assert!(conflicts.is_empty());
+    }
+}
