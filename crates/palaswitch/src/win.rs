@@ -36,6 +36,7 @@ use windows::core::{PCWSTR, w};
 
 use crate::settings_window::SettingsEvent;
 use crate::shortcut::Shortcut;
+use crate::shortcut_field;
 
 const CLASS_NAME: PCWSTR = w!("palaswitch.hidden");
 const INSTANCE_MUTEX: PCWSTR = w!("Local\\palaswitch.instance");
@@ -285,6 +286,11 @@ pub fn run_message_loop() {
     // SAFETY: `message` lives for the whole loop; GetMessageW returns 0 on
     // WM_QUIT and -1 on error, both of which end the loop.
     while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
+        if shortcut_field::wants_raw_key(&message) {
+            // SAFETY: `message` was just filled by GetMessageW.
+            unsafe { DispatchMessageW(&message) };
+            continue;
+        }
         let dialog = DIALOG.with(Cell::get);
         if dialog != 0 && is_dialog_message(dialog, &message) {
             continue;
@@ -420,7 +426,8 @@ pub fn types_with_altgr(shortcut: Shortcut) -> bool {
     let vk = u32::from(shortcut.key.vk());
     let mut typed = [0u16; 8];
     // SAFETY: reads the layout of this thread and translates one key into
-    // local buffers, without changing the keyboard state.
+    // local buffers; NO_STATE_CHANGE (Windows 10 1607 and later) keeps a
+    // dead key from staying pending.
     let length = unsafe {
         let layout = GetKeyboardLayout(0);
         let scan = MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, Some(layout));

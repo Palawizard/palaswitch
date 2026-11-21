@@ -9,7 +9,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DLGC_WANTALLKEYS, GetNextDlgTabItem, GetParent, SetWindowTextW, WM_CHAR, WM_GETDLGCODE,
+    DLGC_WANTALLKEYS, GetNextDlgTabItem, GetParent, MSG, SetWindowTextW, WM_CHAR, WM_GETDLGCODE,
     WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_NCDESTROY, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::HSTRING;
@@ -32,7 +32,7 @@ thread_local! {
     static LISTENING: Cell<Option<Listening>> = const { Cell::new(None) };
     /// The key that ended the last capture, until it is released: its
     /// repeats and its character must not reach the button or the window.
-    static RELEASING: Cell<Option<Releasing>> = const { Cell::new(None) };
+    static RELEASING: Cell<Option<(isize, Releasing)>> = const { Cell::new(None) };
 }
 
 /// What a field tells its window.
@@ -92,6 +92,28 @@ fn held_modifiers() -> Mods {
     }
 }
 
+/// Whether a key message must reach a field as it is: the field that
+/// listens, or the final key still held. Translated into characters, a dead
+/// key (~ on a French keyboard) would wait for the next letter typed
+/// elsewhere, and the dialog handling would take Escape or Space.
+pub fn wants_raw_key(message: &MSG) -> bool {
+    if !matches!(
+        message.message,
+        WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP
+    ) {
+        return false;
+    }
+    let field = message.hwnd.0 as isize;
+    let vk = message.wParam.0 as u16;
+    let listening = LISTENING
+        .with(Cell::get)
+        .is_some_and(|listening| listening.field == field);
+    let releasing = RELEASING
+        .with(Cell::get)
+        .is_some_and(|(held_by, held)| held_by == field && held.0 == vk);
+    listening || releasing
+}
+
 pub fn is_listening(field: HWND) -> bool {
     LISTENING.with(|cell| {
         cell.get()
@@ -123,6 +145,12 @@ extern "system" fn field_proc(
         if is_listening(hwnd) {
             stop_listening();
         }
+        if RELEASING
+            .with(Cell::get)
+            .is_some_and(|(field, _)| field == hwnd.0 as isize)
+        {
+            RELEASING.with(|cell| cell.set(None));
+        }
         // SAFETY: removes our own subclass, then frees its data once.
         unsafe {
             let _ = RemoveWindowSubclass(hwnd, Some(field_proc), SUBCLASS_ID);
@@ -140,10 +168,11 @@ extern "system" fn field_proc(
         .with(Cell::get)
         .filter(|listening| listening.field == hwnd.0 as isize);
     let Some(mut listening) = listening else {
-        if let Some(held) = RELEASING.with(Cell::get) {
+        if let Some((held_by, held)) = RELEASING.with(Cell::get)
+            && held_by == hwnd.0 as isize
+        {
             let key = wparam.0 as u16;
             let message = match message {
-                WM_GETDLGCODE => return LRESULT(DLGC_WANTALLKEYS as isize),
                 WM_KEYDOWN | WM_SYSKEYDOWN => Some(KeyMessage::Down(key)),
                 WM_KEYUP | WM_SYSKEYUP => Some(KeyMessage::Up(key)),
                 WM_CHAR | WM_SYSCHAR => Some(KeyMessage::Char),
@@ -155,7 +184,7 @@ extern "system" fn field_proc(
             };
             if let Some(message) = message {
                 let (swallow, still) = held.on(message);
-                RELEASING.with(|cell| cell.set(still));
+                RELEASING.with(|cell| cell.set(still.map(|still| (held_by, still))));
                 if swallow {
                     return LRESULT(0);
                 }
@@ -194,12 +223,12 @@ extern "system" fn field_proc(
         }
         Step::Done(shortcut) => {
             stop_listening();
-            RELEASING.with(|cell| cell.set(Some(Releasing(vk))));
+            RELEASING.with(|cell| cell.set(Some((hwnd.0 as isize, Releasing(vk)))));
             report(FieldEvent::Typed(listening.sector, shortcut));
         }
         Step::Cancelled => {
             stop_listening();
-            RELEASING.with(|cell| cell.set(Some(Releasing(vk))));
+            RELEASING.with(|cell| cell.set(Some((hwnd.0 as isize, Releasing(vk)))));
             report(FieldEvent::Stopped(listening.sector));
         }
         Step::Left => {
