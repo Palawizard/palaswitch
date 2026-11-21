@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod capture;
+mod config;
 mod gdi;
 mod hardware;
 mod icon;
