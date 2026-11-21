@@ -20,11 +20,11 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE, DBT_DEVTYP_DEVICEINTERFACE,
-    DEV_BROADCAST_DEVICEINTERFACE_W, DEVICE_NOTIFY_WINDOW_HANDLE, DefWindowProcW, DispatchMessageW,
-    FindWindowW, GetMessageW, HDEVNOTIFY, MSG, PBT_APMRESUMEAUTOMATIC, PostMessageW,
-    PostQuitMessage, RegisterClassW, RegisterDeviceNotificationW, SM_CXSMICON, TranslateMessage,
-    UnregisterDeviceNotification, WM_APP, WM_CLOSE, WM_DEVICECHANGE, WM_POWERBROADCAST,
-    WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
+    DEV_BROADCAST_DEVICEINTERFACE_W, DEVICE_NOTIFY_WINDOW_HANDLE, DefWindowProcW, DestroyWindow,
+    DispatchMessageW, FindWindowW, GetMessageW, HDEVNOTIFY, MSG, PBT_APMRESUMEAUTOMATIC,
+    PostMessageW, PostQuitMessage, RegisterClassW, RegisterDeviceNotificationW, SM_CXSMICON,
+    TranslateMessage, UnregisterDeviceNotification, WM_APP, WM_CLOSE, WM_DEVICECHANGE,
+    WM_POWERBROADCAST, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -119,6 +119,8 @@ impl Drop for HiddenWindow {
             // SAFETY: the handle came from RegisterDeviceNotificationW.
             let _ = unsafe { UnregisterDeviceNotification(devices) };
         }
+        // SAFETY: our window, destroyed from the thread that created it.
+        let _ = unsafe { DestroyWindow(self.hwnd) };
     }
 }
 
@@ -288,10 +290,11 @@ pub fn lock_single_instance() -> windows::core::Result<Option<InstanceLock>> {
     }
     // SAFETY: the handle came from CreateMutexW and is not used after.
     let _ = unsafe { CloseHandle(mutex) };
+    // The running instance may not have its window yet; then nothing is
+    // told, which only matters for the settings window it would open.
     // SAFETY: looks up a window by class name only.
-    match unsafe { FindWindowW(CLASS_NAME, PCWSTR::null()) } {
-        Ok(running) => post(running, WM_APP_ANOTHER_INSTANCE),
-        Err(error) => tracing::warn!(%error, "the running instance has no window yet"),
+    if let Ok(running) = unsafe { FindWindowW(CLASS_NAME, PCWSTR::null()) } {
+        post(running, WM_APP_ANOTHER_INSTANCE);
     }
     Ok(None)
 }

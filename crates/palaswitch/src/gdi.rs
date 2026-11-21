@@ -95,9 +95,11 @@ fn draw(text: &str, em: i32, canvas: usize) -> Option<Coverage> {
         bottom: side,
     };
     // SAFETY: `dc`, `bitmap` and `font` are valid until the end of this
-    // function; the previous selections are put back before they are
-    // deleted.
+    // function and `bits` holds `canvas` x `canvas` 4-byte pixels while the
+    // bitmap lives; the previous selections are put back before deletion.
     let levels = unsafe {
+        // The bitmap memory is not documented as cleared.
+        std::ptr::write_bytes(bits.cast::<u8>(), 0, canvas * canvas * 4);
         let old_bitmap = SelectObject(dc.0, bitmap.0);
         let old_font = SelectObject(dc.0, font.0);
         SetTextColor(dc.0, COLORREF(0x00FF_FFFF));
