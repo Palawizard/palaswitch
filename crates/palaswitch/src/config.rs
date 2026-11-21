@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::shortcut::Shortcut;
 
 const FILE_NAME: &str = "settings.toml";
+/// Highest profile sector the settings accept; the settings window keeps
+/// the sector in the low bits of its control ids.
+pub const MAX_SECTOR: u16 = 0x0FFF;
 /// Longest display name of a profile, in characters.
 pub const MAX_NAME_LEN: usize = 32;
 
@@ -123,8 +126,8 @@ pub fn parse(text: &str) -> Result<Settings, String> {
         profiles: BTreeMap::new(),
     };
     for entry in file.profiles {
-        if entry.sector == 0 {
-            return Err("profile sector 0 does not exist".to_owned());
+        if entry.sector == 0 || entry.sector > MAX_SECTOR {
+            return Err(format!("profile sector {} does not exist", entry.sector));
         }
         if let Some(name) = &entry.name
             && let Err(problem) = check_name(name)
@@ -271,6 +274,7 @@ shortcut = "Ctrl+Alt+F2"
             "start_with_windows = maybe",
             "colour = \"blue\"",
             "[[profile]]\nsector = 0",
+            "[[profile]]\nsector = 4096",
             "[[profile]]\nsector = 1\n[[profile]]\nsector = 1",
             "[[profile]]\nsector = 1\nshortcut = \"Ctrl+Nope\"",
             "[[profile]]\nsector = 1\nshortcut = \"A\"",

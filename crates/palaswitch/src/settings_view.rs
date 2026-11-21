@@ -3,7 +3,7 @@
 
 use palaswitch_device::Connection;
 
-use crate::config::{MAX_NAME_LEN, ProfileSettings, Settings};
+use crate::config::{MAX_NAME_LEN, MAX_SECTOR, ProfileSettings, Settings};
 use crate::model::{MouseState, profile_label};
 use crate::shortcut::{Refusal, Shortcut};
 use crate::text::Texts;
@@ -65,6 +65,7 @@ impl View {
             .profiles
             .iter()
             .filter(|profile| profile.enabled || view.active == Some(profile.sector))
+            .filter(|profile| profile.sector <= MAX_SECTOR)
             .map(|profile| {
                 let chosen = settings.profiles.get(&profile.sector);
                 Row {
