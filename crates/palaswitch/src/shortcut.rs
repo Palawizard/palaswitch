@@ -202,11 +202,12 @@ static KEYS: &[Key] = &[
 ];
 
 impl Key {
-    /// The key for a Windows virtual-key code, if shortcuts can use it.
+    /// Windows virtual-key code of the key.
     pub fn vk(self) -> u16 {
         self.vk
     }
 
+    /// The key for a Windows virtual-key code, if shortcuts can use it.
     pub fn from_vk(vk: u16) -> Option<Self> {
         KEYS.iter().copied().find(|key| key.vk == vk)
     }
