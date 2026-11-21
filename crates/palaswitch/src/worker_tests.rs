@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
-use palaswitch_hidpp::LONG_REPORT_LEN;
+use palaswitch_hidpp::{LONG_REPORT_LEN, TransportError};
 
 use super::*;
 

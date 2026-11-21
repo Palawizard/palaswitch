@@ -12,12 +12,11 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use palaswitch_device::{
-    Connection, HidApi, HidTransport, Interface, Mouse, NotFound, ReportSignal, hidpp_interfaces,
-};
+use palaswitch_device::{Connection, Interface, Mouse, NotFound, ReportSignal};
 use palaswitch_hidpp::features::Profile;
-use palaswitch_hidpp::{Error, InputReport, SOFTWARE_ID, Transport, TransportError};
+use palaswitch_hidpp::{Error, InputReport, SOFTWARE_ID, Transport};
 
+use crate::hardware::{Hardware, HidHardware};
 use crate::model::{Failure, MouseState, MouseView};
 
 /// Device changes come in bursts, one per collection; the new device is
@@ -69,55 +68,6 @@ impl Worker {
             tracing::error!(?command, "the mouse thread is gone");
         }
         sent
-    }
-}
-
-/// Lists and opens HID++ interfaces.
-pub trait Hardware {
-    type Transport: Transport;
-
-    fn interfaces(&mut self) -> Result<Vec<Interface>, String>;
-
-    /// Opens `interface`; `signal` runs on every report it receives.
-    fn open(
-        &mut self,
-        interface: &Interface,
-        signal: ReportSignal,
-    ) -> Result<Self::Transport, TransportError>;
-}
-
-#[derive(Default)]
-struct HidHardware {
-    api: Option<HidApi>,
-}
-
-impl Hardware for HidHardware {
-    type Transport = HidTransport;
-
-    fn interfaces(&mut self) -> Result<Vec<Interface>, String> {
-        let api = match self.api.as_mut() {
-            // The list is fixed when HidApi is created: refresh it each time.
-            Some(api) => {
-                api.refresh_devices().map_err(|error| error.to_string())?;
-                api
-            }
-            None => self
-                .api
-                .insert(HidApi::new().map_err(|error| error.to_string())?),
-        };
-        Ok(hidpp_interfaces(api))
-    }
-
-    fn open(
-        &mut self,
-        interface: &Interface,
-        signal: ReportSignal,
-    ) -> Result<HidTransport, TransportError> {
-        let api = self
-            .api
-            .as_ref()
-            .ok_or_else(|| TransportError("hidapi is not started".to_owned()))?;
-        HidTransport::open_with_signal(api, interface, signal)
     }
 }
 

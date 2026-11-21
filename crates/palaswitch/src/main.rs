@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod gdi;
+mod hardware;
 mod icon;
 mod logs;
 mod model;
