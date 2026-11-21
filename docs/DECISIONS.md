@@ -34,3 +34,24 @@ For HID++: `hidpp` 0.2.0 (no 0x8100 support), `openlogi-hidpp` 0.9.0 (correct, b
 - Unsigned executable: SmartScreen warns on first launch; to be explained in the README with the first release.
 - `vpk` needs the .NET 8 SDK on the release machine and in CI.
 - The skeleton measured 2.1 MB of private memory and no CPU time at rest (2026-11-20).
+
+## ADR-002: one transport per HID++ interface, tray icon without a GUID
+
+- Date: 2026-11-21. Status: accepted.
+
+### Context
+
+Each `HidTransport` runs one reader thread per HID collection, blocked on a read. A transport dropped while its device is still there keeps those threads and their handles until the next report arrives. Discovery used to open one transport per device index behind a receiver and drop the ones where nothing answered.
+
+Failure notifications (`Shell_NotifyIconW` with `NIF_INFO`) must name the existing tray icon, either by GUID or by window and `uID`. Windows binds the GUID of an unsigned executable to its path: a second copy of the app at another path could no longer add its icon.
+
+### Decision
+
+- Discovery keeps the first device with onboard profiles behind each interface and keeps one transport per interface for as long as Windows lists it, also when no mouse answers (a receiver whose mouse is asleep), so that the interface can be probed again on its own traffic.
+- The tray icon has no GUID. Notifications address it by the window of `tray-icon` and the `uID` that `tray-icon` 0.26.1 gives the only icon of a process (2). The crate is pinned to that version and the app logs an error at start-up if Windows does not know the icon under that id.
+
+### Consequences
+
+- A receiver with two paired devices that both have onboard profiles only shows the first one.
+- Updating `tray-icon` means checking the `uID` again.
+- Without a GUID, Windows remembers whether the icon is pinned to the taskbar by executable path; the installer keeps the path stable across updates.

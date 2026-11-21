@@ -29,7 +29,7 @@ Click the icon to open the menu: it lists the enabled profiles with the active o
 
 Only one copy of the app runs at a time. Logs go to `%LOCALAPPDATA%\palaswitch\logs` (at most 2 MB).
 
-Do not run the Logitech profile tool (G HUB or Onboard Memory Manager) while palaswitch is running: both talk to the mouse on the same channel.
+Do not run G HUB or Onboard Memory Manager while palaswitch is running: they talk to the mouse on the same channel.
 
 The interface follows the Windows display language: French if Windows is in French, English otherwise.
 
