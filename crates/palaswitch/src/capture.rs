@@ -46,6 +46,12 @@ pub struct Capture {
 }
 
 impl Capture {
+    /// A capture that starts with `held` already down, such as Ctrl held
+    /// while the field was clicked.
+    pub fn holding(held: Mods) -> Self {
+        Self { held }
+    }
+
     pub fn key_down(&mut self, vk: u16) -> Step {
         if let Some(modifier) = modifier(vk) {
             self.set(modifier, true);
@@ -129,6 +135,43 @@ mod tests {
             panic!("not done: {step:?}");
         };
         assert_eq!(shortcut.to_string(), "F1");
+    }
+
+    #[test]
+    fn modifiers_held_before_listening_count() {
+        let mut capture = Capture::holding(Mods {
+            alt: true,
+            ..Mods::default()
+        });
+
+        let step = capture.key_down(VK_F1);
+
+        let Step::Done(shortcut) = step else {
+            panic!("not done: {step:?}");
+        };
+        assert_eq!(shortcut.to_string(), "Alt+F1");
+    }
+
+    #[test]
+    fn win_key_is_kept_so_that_it_can_be_refused() {
+        let mut capture = Capture::default();
+        capture.key_down(0x5B);
+
+        let step = capture.key_down(VK_F1);
+
+        let Step::Done(shortcut) = step else {
+            panic!("not done: {step:?}");
+        };
+        assert_eq!(shortcut.to_string(), "Win+F1");
+    }
+
+    #[test]
+    fn releasing_another_key_changes_nothing() {
+        let mut capture = Capture::default();
+        capture.key_down(VK_LCONTROL);
+
+        assert_eq!(capture.key_up(VK_CAPITAL), Step::Ignored);
+        assert!(matches!(capture.key_down(VK_F1), Step::Done(_)));
     }
 
     #[test]

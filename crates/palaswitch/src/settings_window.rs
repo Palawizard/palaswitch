@@ -227,7 +227,11 @@ impl SettingsWindow {
                 .zip(&view.rows)
                 .all(|(controls, row)| controls.sector == row.sector);
         if !same_rows {
-            shortcut_field::stop_listening();
+            // The field that listened goes away: the app gives the
+            // shortcuts back.
+            if let Some(sector) = shortcut_field::stop_listening() {
+                report_field(FieldEvent::Stopped(sector));
+            }
             for controls in self.rows.drain(..) {
                 for control in [controls.name, controls.field, controls.clear] {
                     // SAFETY: child controls of ours, not used after.
@@ -306,7 +310,9 @@ impl SettingsWindow {
             || self.texts.shortcut_none.to_owned(),
             |shortcut| shortcut.shown(self.texts),
         );
-        set_text(controls.field, &shown);
+        if !shortcut_field::is_listening(controls.field) {
+            set_text(controls.field, &shown);
+        }
         // SAFETY: enables or disables our own button.
         let _ = unsafe { EnableWindow(controls.clear, row.shortcut.is_some()) };
     }

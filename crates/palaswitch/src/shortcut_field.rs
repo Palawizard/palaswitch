@@ -4,16 +4,18 @@
 use std::cell::Cell;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_SHIFT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyState, SetFocus, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+};
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DLGC_WANTALLKEYS, GetParent, SendMessageW, SetWindowTextW, WM_CHAR, WM_GETDLGCODE, WM_KEYDOWN,
-    WM_KEYUP, WM_KILLFOCUS, WM_NCDESTROY, WM_NEXTDLGCTL, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    DLGC_WANTALLKEYS, GetNextDlgTabItem, GetParent, SetWindowTextW, WM_CHAR, WM_GETDLGCODE,
+    WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_NCDESTROY, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::HSTRING;
 
 use crate::capture::{Capture, Step};
-use crate::shortcut::mods_shown;
+use crate::shortcut::{Mods, mods_shown};
 use crate::text::Texts;
 
 const SUBCLASS_ID: usize = 1;
@@ -28,6 +30,10 @@ struct Listening {
 
 thread_local! {
     static LISTENING: Cell<Option<Listening>> = const { Cell::new(None) };
+    /// Set once a shortcut is typed, until its key is released: the
+    /// character it produces must not reach the button (a beep, or the
+    /// system menu after Alt+Space).
+    static SWALLOW_CHARS: Cell<bool> = const { Cell::new(false) };
 }
 
 /// What a field tells its window.
@@ -68,14 +74,26 @@ pub fn listen(field: HWND, sector: u16, texts: &Texts) -> bool {
         cell.set(Some(Listening {
             field: field.0 as isize,
             sector,
-            capture: Capture::default(),
+            capture: Capture::holding(held_modifiers()),
         }));
     });
     set_text(field, texts.shortcut_listening);
     true
 }
 
-fn is_listening(field: HWND) -> bool {
+/// Modifiers down right now, as read from this thread's keyboard state.
+fn held_modifiers() -> Mods {
+    // SAFETY: reads the key state of this thread's input.
+    let down = |vk: u16| unsafe { GetKeyState(i32::from(vk)) } < 0;
+    Mods {
+        ctrl: down(VK_CONTROL.0),
+        alt: down(VK_MENU.0),
+        shift: down(VK_SHIFT.0),
+        win: down(VK_LWIN.0) || down(VK_RWIN.0),
+    }
+}
+
+pub fn is_listening(field: HWND) -> bool {
     LISTENING.with(|cell| {
         cell.get()
             .is_some_and(|listening| listening.field == field.0 as isize)
@@ -102,9 +120,6 @@ extern "system" fn field_proc(
     _id: usize,
     data: usize,
 ) -> LRESULT {
-    // SAFETY: `data` is the FieldData given in `attach`, alive until
-    // WM_NCDESTROY frees it below.
-    let field = unsafe { &*(data as *const FieldData) };
     if message == WM_NCDESTROY {
         if is_listening(hwnd) {
             stop_listening();
@@ -116,10 +131,20 @@ extern "system" fn field_proc(
             return DefSubclassProc(hwnd, message, wparam, lparam);
         }
     }
+    // SAFETY: `data` is the FieldData given in `attach`, alive until the
+    // WM_NCDESTROY handled above.
+    let field = unsafe { &*(data as *const FieldData) };
     let listening = LISTENING
         .with(Cell::get)
         .filter(|listening| listening.field == hwnd.0 as isize);
     let Some(mut listening) = listening else {
+        if SWALLOW_CHARS.with(Cell::get) {
+            match message {
+                WM_CHAR | WM_SYSCHAR => return LRESULT(0),
+                WM_KEYUP | WM_SYSKEYUP => SWALLOW_CHARS.with(|cell| cell.set(false)),
+                _ => {}
+            }
+        }
         // SAFETY: default handling of a field that is not listening.
         return unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
     };
@@ -153,6 +178,7 @@ extern "system" fn field_proc(
         }
         Step::Done(shortcut) => {
             stop_listening();
+            SWALLOW_CHARS.with(|cell| cell.set(true));
             (field.report)(FieldEvent::Typed(listening.sector, shortcut));
         }
         Step::Cancelled => {
@@ -164,15 +190,14 @@ extern "system" fn field_proc(
             (field.report)(FieldEvent::Stopped(listening.sector));
             // SAFETY: reads the Shift key state of this thread's input.
             let backwards = unsafe { GetKeyState(i32::from(VK_SHIFT.0)) } < 0;
-            // SAFETY: asks the dialog-like parent to move the focus on.
+            // SAFETY: moves the focus to the next or previous control of
+            // our window, as Tab does; the window is not a dialog, so the
+            // dialog manager would not do it.
             unsafe {
-                if let Ok(parent) = GetParent(hwnd) {
-                    SendMessageW(
-                        parent,
-                        WM_NEXTDLGCTL,
-                        Some(WPARAM(usize::from(backwards))),
-                        Some(LPARAM(0)),
-                    );
+                if let Ok(parent) = GetParent(hwnd)
+                    && let Ok(next) = GetNextDlgTabItem(parent, Some(hwnd), backwards)
+                {
+                    let _ = SetFocus(Some(next));
                 }
             }
         }
