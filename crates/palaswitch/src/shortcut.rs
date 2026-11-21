@@ -17,12 +17,6 @@ pub struct Mods {
     pub win: bool,
 }
 
-impl Mods {
-    pub fn is_empty(self) -> bool {
-        !(self.ctrl || self.alt || self.shift || self.win)
-    }
-}
-
 /// How a key is shown to the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Label {
@@ -217,10 +211,6 @@ impl Key {
         KEYS.iter()
             .copied()
             .find(|key| key.id.eq_ignore_ascii_case(id))
-    }
-
-    pub fn vk(self) -> u16 {
-        self.vk
     }
 
     /// F13 to F24 exist on no common keyboard, so they never collide with
