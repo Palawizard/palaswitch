@@ -8,6 +8,7 @@ mod hotkeys;
 mod icon;
 mod logs;
 mod model;
+mod settings_view;
 mod shortcut;
 mod text;
 mod tray;
