@@ -59,6 +59,18 @@ impl<T: Transport> Mouse<T> {
         self.session.take_notifications()
     }
 
+    /// Reads what has arrived without sending anything, and returns the
+    /// notifications received so far, oldest first.
+    pub fn poll_notifications(&mut self) -> Result<Vec<LongFrame>, Error> {
+        self.session.poll_notifications()
+    }
+
+    /// Sector of the new active profile when `frame` says the profile
+    /// changed on the device itself.
+    pub fn changed_profile(&self, frame: &LongFrame) -> Option<u16> {
+        self.onboard.changed_profile(frame)
+    }
+
     /// Feature index of onboard profiles, to recognize its notifications.
     pub fn onboard_feature_index(&self) -> u8 {
         self.onboard.feature_index()
@@ -94,9 +106,13 @@ pub fn find_mice(api: &HidApi) -> (Vec<Mouse>, Vec<Skipped>) {
     let mut mice = Vec::new();
     let mut skipped = Vec::new();
     for interface in hidpp_interfaces(api) {
-        let open = || HidTransport::open(api, &interface).map_err(Error::Transport);
-        match probe_interface(open, interface.product_id) {
-            Ok(found) => mice.extend(found),
+        let found = HidTransport::open(api, &interface)
+            .map_err(Error::Transport)
+            .and_then(|transport| {
+                Mouse::find(transport, interface.product_id).map_err(|not_found| not_found.reason)
+            });
+        match found {
+            Ok(mouse) => mice.push(mouse),
             Err(reason) => skipped.push(Skipped {
                 product_id: interface.product_id,
                 reason,
@@ -106,76 +122,80 @@ pub fn find_mice(api: &HidApi) -> (Vec<Mouse>, Vec<Skipped>) {
     (mice, skipped)
 }
 
-/// Looks for devices with onboard profiles behind one interface: index 0xFF
-/// first, which is the device itself when it is plugged in directly. A
-/// receiver answers 0xFF with a HID++ 1.0 error; only then are the paired
-/// indices 1 to 6 tried. `open` gives a fresh transport to the interface.
-pub(crate) fn probe_interface<T: Transport>(
-    mut open: impl FnMut() -> Result<T, Error>,
-    product_id: u16,
-) -> Result<Vec<Mouse<T>>, Error> {
-    let mut session = Session::new(open()?, DIRECT_INDEX, Config::default());
-    match probe(&mut session) {
-        Ok((onboard, info, name)) => {
-            tracing::info!(name, product_id, "found device plugged in directly");
-            return Ok(vec![Mouse {
-                name,
-                product_id,
-                connection: Connection::Wired,
-                session,
-                onboard,
-                info,
-            }]);
-        }
-        Err(Error::Device(DeviceError::Hidpp10(code))) => {
-            tracing::debug!(code, product_id, "receiver, trying paired devices");
-        }
-        Err(error) => return Err(error),
-    }
+/// No device with onboard profiles answered behind an interface.
+#[derive(Debug)]
+pub struct NotFound<T> {
+    pub reason: Error,
+    /// The transport, to try again later without opening the interface
+    /// again. `None` when the transport itself failed.
+    pub transport: Option<T>,
+}
 
-    let mut mice = Vec::new();
-    let mut reason: Option<Error> = None;
-    let mut spare = Some(session.into_transport());
-    for index in RECEIVER_INDICES {
-        let transport = match spare.take() {
-            Some(transport) => transport,
-            None => match open() {
-                Ok(transport) => transport,
-                Err(error) => {
-                    reason = Some(error);
-                    break;
-                }
-            },
-        };
-        let mut session = Session::new(transport, index, Config::default());
+impl<T: Transport> Mouse<T> {
+    /// Looks for a device with onboard profiles behind one interface: index
+    /// 0xFF first, which is the device itself when it is plugged in directly.
+    /// A receiver answers 0xFF with a HID++ 1.0 error; only then are the
+    /// paired indices 1 to 6 tried, and the first device found is kept, so
+    /// that each interface has a single transport.
+    pub fn find(transport: T, product_id: u16) -> Result<Self, NotFound<T>> {
+        let mut session = Session::new(transport, DIRECT_INDEX, Config::default());
         match probe(&mut session) {
             Ok((onboard, info, name)) => {
-                tracing::info!(name, index, product_id, "found device behind receiver");
-                mice.push(Mouse {
+                tracing::info!(name, product_id, "found device plugged in directly");
+                return Ok(Mouse {
                     name,
                     product_id,
-                    connection: Connection::Receiver(index),
+                    connection: Connection::Wired,
                     session,
                     onboard,
                     info,
                 });
             }
-            Err(error @ Error::Transport(_)) => {
-                reason = Some(error);
-                break;
+            Err(Error::Device(DeviceError::Hidpp10(code))) => {
+                tracing::debug!(code, product_id, "receiver, trying paired devices");
             }
-            Err(error) => {
-                tracing::debug!(%error, index, product_id, "no device");
-                reason = Some(more_telling(reason, error));
-                spare = Some(session.into_transport());
+            Err(reason) => return Err(not_found(reason, session)),
+        }
+
+        let mut reason: Option<Error> = None;
+        for index in RECEIVER_INDICES {
+            let mut indexed = Session::new(session.into_transport(), index, Config::default());
+            match probe(&mut indexed) {
+                Ok((onboard, info, name)) => {
+                    tracing::info!(name, index, product_id, "found device behind receiver");
+                    return Ok(Mouse {
+                        name,
+                        product_id,
+                        connection: Connection::Receiver(index),
+                        session: indexed,
+                        onboard,
+                        info,
+                    });
+                }
+                Err(error @ Error::Transport(_)) => {
+                    return Err(NotFound {
+                        reason: error,
+                        transport: None,
+                    });
+                }
+                Err(error) => {
+                    tracing::debug!(%error, index, product_id, "no device");
+                    reason = Some(more_telling(reason, error));
+                    session = indexed;
+                }
             }
         }
+        let reason = reason.unwrap_or(Error::Malformed("no device index answered"));
+        Err(not_found(reason, session))
     }
-    if mice.is_empty() {
-        Err(reason.unwrap_or(Error::Malformed("no device index answered")))
-    } else {
-        Ok(mice)
-    }
+}
+
+fn not_found<T: Transport>(reason: Error, session: Session<T>) -> NotFound<T> {
+    let transport = match reason {
+        Error::Transport(_) => None,
+        _ => Some(session.into_transport()),
+    };
+    NotFound { reason, transport }
 }
 
 /// Keeps the error that says the most about why nothing answered: an empty
