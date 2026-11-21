@@ -362,7 +362,13 @@ mod tests {
 
     #[test]
     fn settings_form_reads_back_the_same() {
-        for text in ["Ctrl+Alt+F1", "Ctrl+Shift+Num1", "Alt+PageDown", "F13", "Ctrl+Space"] {
+        for text in [
+            "Ctrl+Alt+F1",
+            "Ctrl+Shift+Num1",
+            "Alt+PageDown",
+            "F13",
+            "Ctrl+Space",
+        ] {
             assert_eq!(shortcut(text).to_string(), text);
         }
     }
@@ -374,7 +380,14 @@ mod tests {
 
     #[test]
     fn parsing_refuses_unknown_keys_and_repeated_modifiers() {
-        for text in ["", "Ctrl+", "Ctrl+Ctrl+A", "Hyper+A", "Ctrl+Tab", "Ctrl+Alt"] {
+        for text in [
+            "",
+            "Ctrl+",
+            "Ctrl+Ctrl+A",
+            "Hyper+A",
+            "Ctrl+Tab",
+            "Ctrl+Alt",
+        ] {
             assert!(text.parse::<Shortcut>().is_err(), "{text}");
         }
     }

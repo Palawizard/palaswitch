@@ -68,7 +68,9 @@ pub struct Reset {
 pub fn load(path: &Path) -> (Settings, Option<Reset>) {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return (Settings::default(), None),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return (Settings::default(), None);
+        }
         Err(error) => return (Settings::default(), Some(reset(path, error.to_string()))),
     };
     match parse(&text) {
@@ -185,10 +187,8 @@ mod tests {
 
     impl TempDir {
         fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "palaswitch-config-{name}-{}",
-                std::process::id()
-            ));
+            let path = std::env::temp_dir()
+                .join(format!("palaswitch-config-{name}-{}", std::process::id()));
             let _ = fs::remove_dir_all(&path);
             fs::create_dir_all(&path).unwrap();
             Self(path)
