@@ -11,5 +11,5 @@ mod transport;
 
 pub use frame::{FrameError, LONG_REPORT_ID, LONG_REPORT_LEN, LongFrame, SOFTWARE_ID};
 pub use report::{DeviceError, InputReport, Reply, SHORT_REPORT_ID, SHORT_REPORT_LEN, classify};
-pub use session::{Config, Error, Session, should_retry};
+pub use session::{Config, Error, Polled, Session, should_retry};
 pub use transport::{Transport, TransportError};

@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
 use std::thread;
 use std::time::Duration;
@@ -10,6 +11,10 @@ use crate::interface::Interface;
 const READ_BUFFER_LEN: usize = 64;
 
 type Incoming = Result<Vec<u8>, String>;
+
+/// Called from a reader thread after each report it forwards, and once more
+/// when it stops, so the owner can wait for traffic instead of polling.
+pub type ReportSignal = Arc<dyn Fn() + Send + Sync>;
 
 /// HID++ transport over hidapi.
 ///
@@ -33,6 +38,15 @@ impl std::fmt::Debug for HidTransport {
 
 impl HidTransport {
     pub fn open(api: &HidApi, interface: &Interface) -> Result<Self, TransportError> {
+        Self::open_with_signal(api, interface, Arc::new(|| {}))
+    }
+
+    /// Like [`Self::open`], with `signal` called on every incoming report.
+    pub fn open_with_signal(
+        api: &HidApi,
+        interface: &Interface,
+        signal: ReportSignal,
+    ) -> Result<Self, TransportError> {
         let open = |path: &std::ffi::CStr| {
             api.open_path(path)
                 .map_err(|error| TransportError(error.to_string()))
@@ -45,9 +59,13 @@ impl HidTransport {
         }
         for (name, reader) in readers {
             let sender = sender.clone();
+            let signal = signal.clone();
             thread::Builder::new()
                 .name(format!("hidpp-{name}-reader"))
-                .spawn(move || forward_reports(&reader, &sender))
+                .spawn(move || {
+                    forward_reports(&reader, &sender, &*signal);
+                    signal();
+                })
                 .map_err(|error| TransportError(error.to_string()))?;
         }
         Ok(Self {
@@ -58,7 +76,7 @@ impl HidTransport {
     }
 }
 
-fn forward_reports(reader: &HidDevice, sender: &mpsc::Sender<Incoming>) {
+fn forward_reports(reader: &HidDevice, sender: &mpsc::Sender<Incoming>, signal: &dyn Fn()) {
     let mut buffer = [0u8; READ_BUFFER_LEN];
     loop {
         match reader.read(&mut buffer) {
@@ -72,6 +90,7 @@ fn forward_reports(reader: &HidDevice, sender: &mpsc::Sender<Incoming>) {
                 if sender.send(Ok(buffer[..len].to_vec())).is_err() {
                     return;
                 }
+                signal();
             }
             Err(error) => {
                 let _ = sender.send(Err(error.to_string()));

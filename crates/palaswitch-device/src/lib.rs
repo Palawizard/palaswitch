@@ -7,5 +7,5 @@ mod transport;
 
 pub use hidapi::HidApi;
 pub use interface::{Collection, Interface, group_hidpp_collections};
-pub use mouse::{Connection, Mouse, Skipped, find_mice, hidpp_interfaces};
-pub use transport::HidTransport;
+pub use mouse::{Connection, Mouse, NotFound, Skipped, find_mice, hidpp_interfaces};
+pub use transport::{HidTransport, ReportSignal};

@@ -38,10 +38,8 @@ fn exchanges(capture: &str) -> Vec<Exchange> {
     exchanges
 }
 
-/// Replays a capture: checks each write, answers with what followed it. All
-/// transports opened for one interface share the same script, as handles to
-/// the same device would.
-#[derive(Debug, Clone)]
+/// Replays a capture: checks each write, answers with what followed it.
+#[derive(Debug)]
 struct Replay {
     script: Rc<RefCell<VecDeque<Exchange>>>,
     inbox: VecDeque<Vec<u8>>,
@@ -64,40 +62,46 @@ impl Transport for Replay {
     }
 }
 
-fn discover(script: Vec<Exchange>, product_id: u16) -> (Result<Vec<Mouse<Replay>>, Error>, usize) {
+fn discover(
+    script: Vec<Exchange>,
+    product_id: u16,
+) -> (Result<Mouse<Replay>, NotFound<Replay>>, usize) {
     let script = Rc::new(RefCell::new(VecDeque::from(script)));
-    let open = || {
-        Ok(Replay {
-            script: script.clone(),
-            inbox: VecDeque::new(),
-        })
+    let transport = Replay {
+        script: script.clone(),
+        inbox: VecDeque::new(),
     };
-    let result = probe_interface(open, product_id);
+    let result = Mouse::find(transport, product_id);
     let left = script.borrow().len();
     (result, left)
 }
 
-fn summary(mice: &[Mouse<Replay>]) -> Vec<(String, Connection, u8)> {
-    mice.iter()
-        .map(|mouse| {
-            (
-                mouse.name.clone(),
-                mouse.connection,
-                mouse.info().profile_count,
-            )
-        })
-        .collect()
+fn summary(mouse: &Mouse<Replay>) -> (String, Connection, u8) {
+    (
+        mouse.name.clone(),
+        mouse.connection,
+        mouse.info().profile_count,
+    )
+}
+
+fn reason(result: Result<Mouse<Replay>, NotFound<Replay>>) -> (Error, bool) {
+    let not_found = result.expect_err("no mouse");
+    (not_found.reason, not_found.transport.is_some())
 }
 
 #[test]
-fn receiver_discovery_finds_the_mouse_at_index_one() {
-    let (result, left) = discover(exchanges(RECEIVER), 0xC547);
+fn receiver_discovery_keeps_the_mouse_at_index_one() {
+    // The capture goes on with indices 2 to 6, which are no longer probed
+    // once a device answered.
+    let script = exchanges(RECEIVER);
+    let not_probed = script.len() - 7;
+    let (result, left) = discover(script, 0xC547);
 
     assert_eq!(
-        (summary(&result.expect("mice")), left),
+        (summary(&result.expect("mouse")), left),
         (
-            vec![("G502 X PLUS".to_owned(), Connection::Receiver(1), 5)],
-            0
+            ("G502 X PLUS".to_owned(), Connection::Receiver(1), 5),
+            not_probed
         )
     );
 }
@@ -110,8 +114,8 @@ fn wired_discovery_stops_at_index_ff() {
     let (result, left) = discover(script, 0xC095);
 
     assert_eq!(
-        (summary(&result.expect("mice")), left),
-        (vec![("G502 X PLUS".to_owned(), Connection::Wired, 5)], 0)
+        (summary(&result.expect("mouse")), left),
+        (("G502 X PLUS".to_owned(), Connection::Wired, 5), 0)
     );
 }
 
@@ -129,8 +133,8 @@ fn receiver_with_mouse_switched_off_reports_unknown_device() {
     let (result, left) = discover(script, 0xC547);
 
     assert_eq!(
-        (result.err(), left),
-        (Some(Error::Device(DeviceError::Hidpp10(0x08))), 0)
+        (reason(result), left),
+        ((Error::Device(DeviceError::Hidpp10(0x08)), true), 0)
     );
 }
 
@@ -143,5 +147,5 @@ fn mouse_that_does_not_answer_is_reported_instead_of_empty_indices() {
     let script = [vec![receiver[0].clone(), silent], receiver[7..].to_vec()].concat();
     let (result, left) = discover(script, 0xC547);
 
-    assert_eq!((result.err(), left), (Some(Error::Timeout), 0));
+    assert_eq!((reason(result), left), ((Error::Timeout, true), 0));
 }

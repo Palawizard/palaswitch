@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::time::{Duration, Instant};
 
-use crate::frame::{FrameError, LongFrame};
+use crate::frame::{FrameError, LongFrame, SOFTWARE_ID};
 use crate::report::{DeviceError, InputReport, Reply, classify};
 use crate::transport::{Transport, TransportError};
 
@@ -87,6 +87,16 @@ impl From<TransportError> for Error {
 /// (counted from 1) is sent again, given `attempts` tries in all.
 pub fn should_retry(error: DeviceError, attempt: u8, attempts: u8) -> bool {
     error.is_retryable() && attempt < attempts
+}
+
+/// What [`Session::poll`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Polled {
+    /// Reports read that do not answer one of our requests: notifications,
+    /// or traffic of the device with another program.
+    pub reports: usize,
+    /// Notifications received since the last call, oldest first.
+    pub notifications: Vec<LongFrame>,
 }
 
 /// Requests to one HID++ 2.0 device (one device index) over a transport.
@@ -179,13 +189,29 @@ impl<T: Transport> Session<T> {
         self.notifications.drain(..).collect()
     }
 
+    /// Reads what has already arrived without sending anything. Only a late
+    /// answer to one of our requests that timed out can carry our software
+    /// ID here; it is not counted.
+    pub fn poll(&mut self) -> Result<Polled, Error> {
+        let reports = self.drain()?;
+        Ok(Polled {
+            reports,
+            notifications: self.take_notifications(),
+        })
+    }
+
     /// Reads what has already arrived, so that a late answer to an earlier
     /// request cannot be taken for the next one.
-    fn drain(&mut self) -> Result<(), Error> {
+    fn drain(&mut self) -> Result<usize, Error> {
+        let mut count = 0;
         while let Some(bytes) = self.transport.read(Duration::ZERO)? {
-            self.keep_if_notification(&InputReport::parse(&bytes));
+            let report = InputReport::parse(&bytes);
+            if !self.is_ours(&report) {
+                count += 1;
+            }
+            self.keep_if_notification(&report);
         }
-        Ok(())
+        Ok(count)
     }
 
     fn await_reply(
@@ -208,6 +234,16 @@ impl<T: Transport> Session<T> {
                 }
             }
         }
+    }
+
+    /// Whether `report` answers a request of ours to this device.
+    fn is_ours(&self, report: &InputReport) -> bool {
+        let device_index = match *report {
+            InputReport::Long(frame) => frame.device_index(),
+            InputReport::Error { device_index, .. } => device_index,
+            InputReport::Other => return false,
+        };
+        device_index == self.device_index && report.software_id() == Some(SOFTWARE_ID)
     }
 
     fn keep_if_notification(&mut self, report: &InputReport) {

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use common::{ScriptedTransport, exchanges, line_bytes};
 use palaswitch_hidpp::features::{OnboardProfiles, device_name};
-use palaswitch_hidpp::{Config, DeviceError, Error, Session};
+use palaswitch_hidpp::{Config, DeviceError, Error, LongFrame, Session};
 
 const ERRORS: &str = include_str!("fixtures/g502x-plus-lightspeed-errors.txt");
 const FOREIGN: &str = include_str!("fixtures/g502x-plus-lightspeed-foreign.txt");
@@ -286,4 +286,61 @@ fn missing_feature_is_reported_as_not_supported() {
         session.feature_index(0x1234),
         Err(Error::FeatureNotSupported(0x1234))
     );
+}
+
+#[test]
+fn other_notifications_and_responses_are_not_profile_changes() {
+    // The unsolicited notification of the switch capture (feature index
+    // 0x09, function 1) and the getInfo response of the read capture
+    // (feature index 0x0B, function 0, software ID 0x0E).
+    let mut session = session(vec![onboard_lookup()]);
+    let onboard = OnboardProfiles::find(&mut session).expect("feature");
+    let frames = [line_bytes(SWITCH, 4), line_bytes(READ, 3)]
+        .map(|bytes| LongFrame::parse(&bytes).expect("long frame"));
+
+    let changes = frames.map(|frame| onboard.changed_profile(&frame));
+
+    assert_eq!(changes, [None, None]);
+}
+
+#[test]
+fn polling_counts_and_returns_what_already_arrived() {
+    // The switch capture up to the unsolicited notification, read without
+    // sending another request.
+    let mut session = session([vec![onboard_lookup()], exchanges(SWITCH)[..2].to_vec()].concat());
+    let onboard = OnboardProfiles::find(&mut session).expect("feature");
+    onboard.set_onboard_mode(&mut session).expect("mode");
+    session
+        .request(onboard.feature_index(), 3, &[0x00, 0x02])
+        .expect("set profile");
+
+    let first = session.poll().expect("poll");
+    let second = session.poll().expect("poll");
+
+    assert_eq!(
+        (
+            first.reports,
+            first
+                .notifications
+                .iter()
+                .map(LongFrame::function)
+                .collect::<Vec<_>>()
+        ),
+        (1, vec![1])
+    );
+    assert_eq!((second.reports, second.notifications.len()), (0, 0));
+}
+
+#[test]
+fn polling_does_not_count_late_answers_to_our_own_requests() {
+    // Assembled: reports waiting before any request. Our getInfo answer
+    // (software ID 0x0E, read capture), as if it came after a timeout, and
+    // the same answer for software ID 0x0D (foreign capture).
+    let transport = ScriptedTransport::new(Vec::new())
+        .with_pending(vec![line_bytes(READ, 3), line_bytes(FOREIGN, 3)]);
+    let mut session = Session::new(transport, 0x01, config());
+
+    let polled = session.poll().expect("poll");
+
+    assert_eq!((polled.reports, polled.notifications.len()), (1, 0));
 }

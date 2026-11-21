@@ -97,6 +97,16 @@ pub enum InputReport {
 }
 
 impl InputReport {
+    /// Software ID of the request this report answers, or 0 for a
+    /// notification; `None` for other reports.
+    pub fn software_id(&self) -> Option<u8> {
+        match *self {
+            Self::Long(frame) => Some(frame.software_id()),
+            Self::Error { function_byte, .. } => Some(function_byte & 0x0F),
+            Self::Other => None,
+        }
+    }
+
     pub fn parse(bytes: &[u8]) -> Self {
         match (bytes.first(), bytes.len()) {
             (Some(&LONG_REPORT_ID), LONG_REPORT_LEN) if bytes[2] == HIDPP20_ERROR_FEATURE_INDEX => {
