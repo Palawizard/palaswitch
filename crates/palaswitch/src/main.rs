@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod logs;
+mod model;
 mod text;
 
 use std::error::Error;
