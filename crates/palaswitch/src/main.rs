@@ -30,7 +30,11 @@ fn main() -> ExitCode {
     let instance = match win::lock_single_instance() {
         Ok(Some(instance)) => instance,
         Ok(None) => return ExitCode::SUCCESS,
-        Err(_) => return ExitCode::FAILURE,
+        Err(error) => {
+            logs::init(logs::default_dir().as_deref());
+            tracing::error!(%error, "could not take the single-instance lock");
+            return ExitCode::FAILURE;
+        }
     };
     logs::init(logs::default_dir().as_deref());
     std::panic::set_hook(Box::new(|info| tracing::error!(%info, "panic")));
