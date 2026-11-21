@@ -31,13 +31,8 @@ impl App {
                 );
                 self.window = Some(window);
                 self.worker.send(Command::Refresh);
-                let taken = self.taken_shortcuts();
-                if !taken.is_empty() {
-                    let message = self
-                        .texts
-                        .shortcut_taken_here
-                        .replace("{list}", &taken.join(", "));
-                    self.set_message(Some(&message));
+                if let Some(text) = self.conflicts_text(self.texts.shortcut_taken_here) {
+                    self.set_message(Some(&text));
                 }
             }
             Err(error) => tracing::error!(%error, "could not open the settings window"),
@@ -114,6 +109,7 @@ impl App {
                 self.register_shortcuts();
                 Some(problem.message(self.texts))
             }
+            Ok(_) if self.hotkeys.is_none() => Some(self.texts.shortcut_unavailable.to_owned()),
             Ok(settings) => {
                 let conflicts = self
                     .hotkeys

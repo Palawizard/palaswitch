@@ -50,6 +50,8 @@ pub struct Texts {
     pub shortcut_taken_title: &'static str,
     pub shortcut_taken_message: &'static str,
     pub shortcut_taken_here: &'static str,
+    pub shortcut_refused_list: &'static str,
+    pub shortcut_unavailable: &'static str,
     pub settings_menu: &'static str,
     pub settings_title: &'static str,
     pub settings_no_mouse_hint: &'static str,
@@ -123,6 +125,8 @@ static FRENCH: Texts = Texts {
     shortcut_taken_title: "Raccourci déjà pris",
     shortcut_taken_message: "Pris par un autre programme : {list}. Choisis-en un autre dans les réglages.",
     shortcut_taken_here: "Pris par un autre programme : {list}.",
+    shortcut_refused_list: "Refusé par Windows : {list}.",
+    shortcut_unavailable: "Raccourcis indisponibles. Relance palaswitch.",
     settings_menu: "Réglages…",
     settings_title: "Réglages de palaswitch",
     settings_no_mouse_hint: "Branche la souris ou son récepteur pour régler ses profils.",
@@ -138,7 +142,7 @@ static FRENCH: Texts = Texts {
     shortcut_needs_modifier: "Ajoute Ctrl ou Alt. Seules les touches F13 à F24 servent sans.",
     shortcut_win_key: "Les combinaisons avec Win sont réservées à Windows.",
     shortcut_used_by: "Déjà utilisé par {name}.",
-    shortcut_taken: "Déjà utilisé par un autre programme.",
+    shortcut_taken: "Pris par un autre programme.",
     shortcut_reserved: "Windows se sert déjà de cette combinaison partout.",
     shortcut_windows_refused: "Windows a refusé ce raccourci. Choisis-en un autre.",
     start_with_windows: "Lancer avec Windows",
@@ -182,6 +186,8 @@ static ENGLISH: Texts = Texts {
     shortcut_taken_title: "Shortcut already in use",
     shortcut_taken_message: "Used by another program: {list}. Pick another one in the settings.",
     shortcut_taken_here: "Used by another program: {list}.",
+    shortcut_refused_list: "Refused by Windows: {list}.",
+    shortcut_unavailable: "Shortcuts unavailable. Restart palaswitch.",
     settings_menu: "Settings…",
     settings_title: "palaswitch settings",
     settings_no_mouse_hint: "Plug in the mouse or its receiver to set up its profiles.",
@@ -197,7 +203,7 @@ static ENGLISH: Texts = Texts {
     shortcut_needs_modifier: "Add Ctrl or Alt. Only F13 to F24 work without them.",
     shortcut_win_key: "Win key combinations belong to Windows.",
     shortcut_used_by: "Already used by {name}.",
-    shortcut_taken: "Already used by another program.",
+    shortcut_taken: "Used by another program.",
     shortcut_reserved: "Windows already uses this combination everywhere.",
     shortcut_windows_refused: "Windows refused this shortcut. Pick another one.",
     start_with_windows: "Start with Windows",
@@ -264,6 +270,7 @@ mod tests {
         for texts in [&FRENCH, &ENGLISH] {
             assert!(texts.shortcut_taken_message.contains("{list}"));
             assert!(texts.shortcut_taken_here.contains("{list}"));
+            assert!(texts.shortcut_refused_list.contains("{list}"));
             assert!(texts.settings_active.contains("{name}"));
             assert!(texts.shortcut_used_by.contains("{name}"));
         }
@@ -290,6 +297,8 @@ mod tests {
                 texts.shortcut_taken_title,
                 texts.shortcut_taken_message,
                 texts.shortcut_taken_here,
+                texts.shortcut_refused_list,
+                texts.shortcut_unavailable,
                 texts.settings_menu,
                 texts.settings_title,
                 texts.settings_no_mouse_hint,

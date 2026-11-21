@@ -144,10 +144,10 @@ impl App {
     }
 
     /// Shortcuts of the settings that another program already holds.
-    fn taken_shortcuts(&self) -> Vec<String> {
+    fn shortcuts_in(&self, kind: Conflict) -> Vec<String> {
         self.conflicts
             .iter()
-            .filter(|(_, conflict)| **conflict == Conflict::Taken)
+            .filter(|(_, conflict)| **conflict == kind)
             .filter_map(|(sector, _)| {
                 let shortcut = self.settings.profiles.get(sector)?.shortcut?;
                 Some(shortcut.shown(self.texts))
@@ -155,17 +155,30 @@ impl App {
             .collect()
     }
 
-    /// Says which shortcuts another program already holds.
+    /// What to say about the shortcuts Windows did not register, with
+    /// `taken` as the text for those another program holds; `None` when
+    /// all were registered.
+    fn conflicts_text(&self, taken: &str) -> Option<String> {
+        let lines: Vec<String> = [
+            (Conflict::Taken, taken),
+            (Conflict::Refused, self.texts.shortcut_refused_list),
+        ]
+        .into_iter()
+        .filter_map(|(kind, template)| {
+            let list = self.shortcuts_in(kind);
+            (!list.is_empty()).then(|| template.replace("{list}", &list.join(", ")))
+        })
+        .collect();
+        (!lines.is_empty()).then(|| lines.join(" "))
+    }
+
+    /// Says which shortcuts Windows did not register, at start-up.
     fn tell_taken_shortcuts(&self) {
-        let taken = self.taken_shortcuts();
-        if !taken.is_empty() {
+        if let Some(text) = self.conflicts_text(self.texts.shortcut_taken_message) {
             win::notify(
                 self.tray.window_handle(),
                 self.texts.shortcut_taken_title,
-                &self
-                    .texts
-                    .shortcut_taken_message
-                    .replace("{list}", &taken.join(", ")),
+                &text,
             );
         }
     }
