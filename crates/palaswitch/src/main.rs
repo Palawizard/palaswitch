@@ -78,7 +78,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     let window = {
         let app = app.clone();
         HiddenWindow::create(move |event| {
-            if let Some(app) = app.borrow_mut().as_mut() {
+            // Busy only while the app is dropped at the end: nothing left to do.
+            if let Ok(mut app) = app.try_borrow_mut()
+                && let Some(app) = app.as_mut()
+            {
                 app.handle(event);
             }
         })?
@@ -132,7 +135,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     // Dropping the app removes the icon at once instead of leaving it until
     // the pointer passes over it.
-    app.borrow_mut().take();
+    let quitting = app.borrow_mut().take();
+    drop(quitting);
     drop(window);
     Ok(())
 }

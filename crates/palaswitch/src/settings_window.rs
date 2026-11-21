@@ -90,6 +90,11 @@ thread_local! {
     /// Set while the app writes into the controls, so that the change
     /// notifications they send are not taken for the user's.
     static UPDATING: Cell<bool> = const { Cell::new(false) };
+    /// Set once the window received WM_DESTROY, so that it is not destroyed
+    /// a second time from `Drop`.
+    static DESTROYED: Cell<bool> = const { Cell::new(false) };
+    /// Set while `Drop` destroys the window: the app already knows.
+    static SILENT: Cell<bool> = const { Cell::new(false) };
 }
 
 struct RowControls {
@@ -122,6 +127,7 @@ impl SettingsWindow {
         start_with_windows: bool,
     ) -> windows::core::Result<Self> {
         TEXTS.with(|cell| cell.set(Some(texts)));
+        DESTROYED.with(|cell| cell.set(false));
         // SAFETY: null asks for the module of the running executable.
         let instance = unsafe { GetModuleHandleW(None) }?;
         let class = WNDCLASSW {
@@ -512,12 +518,16 @@ impl Drop for SettingsWindow {
     fn drop(&mut self) {
         win::set_dialog(None);
         shortcut_field::stop_listening();
-        // SAFETY: destroys our window if the user did not already close it;
-        // its fonts and brushes are deleted after, with `self`.
-        unsafe {
-            if IsWindow(Some(self.hwnd)).as_bool() {
-                let _ = DestroyWindow(self.hwnd);
+        if !DESTROYED.with(Cell::get) {
+            SILENT.with(|cell| cell.set(true));
+            // SAFETY: destroys our window, which the user did not close; its
+            // fonts and brushes are deleted after, with `self`.
+            unsafe {
+                if IsWindow(Some(self.hwnd)).as_bool() {
+                    let _ = DestroyWindow(self.hwnd);
+                }
             }
+            SILENT.with(|cell| cell.set(false));
         }
         PAINT.with(|cell| cell.set(None));
     }
@@ -679,7 +689,10 @@ extern "system" fn window_proc(
             return LRESULT(0);
         }
         WM_DESTROY => {
-            report(SettingsEvent::Closed);
+            DESTROYED.with(|cell| cell.set(true));
+            if !SILENT.with(Cell::get) {
+                report(SettingsEvent::Closed);
+            }
             return LRESULT(0);
         }
         _ => {}
