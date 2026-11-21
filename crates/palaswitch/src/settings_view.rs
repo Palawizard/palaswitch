@@ -31,14 +31,16 @@ pub struct View {
 impl View {
     pub fn of(state: &MouseState, settings: &Settings, texts: &Texts) -> Self {
         let MouseState::Present(view) = state else {
-            let title = match state {
-                MouseState::Absent { asleep: true } => texts.mouse_asleep,
-                MouseState::Searching => texts.searching,
-                _ => texts.no_mouse,
+            let (title, detail) = match state {
+                MouseState::Absent { asleep: true } => {
+                    (texts.mouse_asleep, texts.settings_asleep_hint)
+                }
+                MouseState::Searching => (texts.searching, ""),
+                _ => (texts.no_mouse, texts.settings_no_mouse_hint),
             };
             return Self {
                 title: title.to_owned(),
-                detail: texts.settings_no_mouse_hint.to_owned(),
+                detail: detail.to_owned(),
                 rows: Vec::new(),
             };
         };
@@ -263,6 +265,21 @@ mod tests {
             (view.title.as_str(), view.detail.as_str(), view.rows.len()),
             (texts.no_mouse, texts.settings_no_mouse_hint, 0)
         );
+    }
+
+    #[test]
+    fn a_sleeping_mouse_is_to_be_moved_and_a_search_needs_no_advice() {
+        let texts = texts(Language::French);
+
+        let asleep = View::of(
+            &MouseState::Absent { asleep: true },
+            &Settings::default(),
+            texts,
+        );
+        let searching = View::of(&MouseState::Searching, &Settings::default(), texts);
+
+        assert_eq!(asleep.detail, texts.settings_asleep_hint);
+        assert_eq!(searching.detail, "");
     }
 
     #[test]

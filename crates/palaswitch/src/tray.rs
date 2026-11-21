@@ -118,10 +118,12 @@ impl App {
         };
         app.show_state();
         if let Some(reset) = &reset {
-            let message = if reset.file_left_in_place() {
-                texts.settings_unreadable_message
-            } else {
-                texts.settings_reset_message
+            let message = match reset {
+                Reset::Unreadable { .. } => texts.settings_unreadable_message,
+                Reset::Invalid { kept_at: None, .. } => texts.settings_invalid_kept_message,
+                Reset::Invalid {
+                    kept_at: Some(_), ..
+                } => texts.settings_reset_message,
             };
             let title = if reset.file_left_in_place() {
                 texts.settings_unreadable_title
@@ -132,6 +134,14 @@ impl App {
         }
         app.register_shortcuts();
         app.tell_taken_shortcuts();
+        let has_shortcuts = app.settings.profiles.values().any(|p| p.shortcut.is_some());
+        if app.hotkeys.is_none() && has_shortcuts {
+            win::notify(
+                app.tray.window_handle(),
+                texts.shortcut_taken_title,
+                texts.shortcut_unavailable,
+            );
+        }
         app.keep_start_with_windows();
         Ok(app)
     }
