@@ -108,6 +108,28 @@ pub fn rename(settings: &Settings, sector: u16, text: &str) -> Settings {
     settings
 }
 
+/// What happened to the settings when the app tried to write them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Saved {
+    Written,
+    /// The file could not be read at start-up and is left alone until the
+    /// next start.
+    Blocked,
+    Failed,
+}
+
+impl Saved {
+    /// The line the window shows afterwards: nothing once the settings are
+    /// written, which also clears an earlier problem.
+    pub fn message(self, texts: &Texts) -> Option<&'static str> {
+        match self {
+            Self::Written => None,
+            Self::Blocked => Some(texts.save_blocked),
+            Self::Failed => Some(texts.save_failed),
+        }
+    }
+}
+
 /// Why a typed shortcut cannot be given to a profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShortcutProblem {
@@ -285,6 +307,19 @@ mod tests {
 
         assert_eq!(again, Ok(first));
         assert_eq!(cleared, Settings::default());
+    }
+
+    #[test]
+    fn a_write_that_did_not_happen_keeps_saying_so() {
+        let texts = texts(Language::French);
+
+        let messages =
+            [Saved::Written, Saved::Blocked, Saved::Failed].map(|saved| saved.message(texts));
+
+        assert_eq!(
+            messages,
+            [None, Some(texts.save_blocked), Some(texts.save_failed)]
+        );
     }
 
     #[test]

@@ -123,11 +123,12 @@ impl App {
             } else {
                 texts.settings_reset_message
             };
-            win::notify(
-                app.tray.window_handle(),
-                texts.settings_reset_title,
-                message,
-            );
+            let title = if reset.file_left_in_place() {
+                texts.settings_unreadable_title
+            } else {
+                texts.settings_reset_title
+            };
+            win::notify(app.tray.window_handle(), title, message);
         }
         app.register_shortcuts();
         app.tell_taken_shortcuts();

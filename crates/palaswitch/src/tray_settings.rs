@@ -7,7 +7,7 @@ use crate::autostart::RUN_KEY;
 use crate::config::{self, Settings};
 use crate::hotkeys::Conflict;
 use crate::model::{MouseState, profile_label};
-use crate::settings_view::{ShortcutProblem, View, clear_shortcut, give_shortcut, rename};
+use crate::settings_view::{Saved, ShortcutProblem, View, clear_shortcut, give_shortcut, rename};
 use crate::settings_window::{SettingsEvent, SettingsWindow};
 use crate::shortcut::Shortcut;
 use crate::shortcut_field::FieldEvent;
@@ -63,7 +63,8 @@ impl App {
                 let renamed = rename(&self.settings, sector, &text);
                 if renamed != self.settings {
                     self.settings = renamed;
-                    self.save();
+                    let saved = self.save();
+                    self.set_message(saved.message(self.texts));
                     self.show_state();
                     self.refresh_settings_window();
                 }
@@ -84,9 +85,9 @@ impl App {
             }
             SettingsEvent::Clear(sector) => {
                 self.settings = clear_shortcut(&self.settings, sector);
-                self.save();
+                let saved = self.save();
                 self.register_shortcuts();
-                self.set_message(None);
+                self.set_message(saved.message(self.texts));
                 self.refresh_settings_window();
             }
             SettingsEvent::StartWithWindows(enabled) => self.start_with_windows(enabled),
@@ -130,8 +131,7 @@ impl App {
                 } else {
                     self.settings = settings;
                     self.conflicts = conflicts;
-                    self.save();
-                    None
+                    self.save().message(self.texts).map(str::to_owned)
                 }
             }
         };
@@ -166,8 +166,8 @@ impl App {
         match result {
             Ok(()) => {
                 self.settings.start_with_windows = enabled;
-                self.save();
-                self.set_message(None);
+                let saved = self.save();
+                self.set_message(saved.message(self.texts));
             }
             Err(error) => {
                 tracing::warn!(error, enabled, "could not change start with Windows");
@@ -179,18 +179,20 @@ impl App {
         }
     }
 
-    fn save(&mut self) {
+    fn save(&self) -> Saved {
         let Some(path) = config::default_path() else {
-            return;
+            return Saved::Failed;
         };
         if self.keep_file {
             tracing::warn!("settings not saved: the file could not be read at start-up");
-            self.set_message(Some(self.texts.save_failed));
-            return;
+            return Saved::Blocked;
         }
-        if let Err(error) = config::save(&path, &self.settings) {
-            tracing::warn!(%error, "could not save the settings");
-            self.set_message(Some(self.texts.save_failed));
+        match config::save(&path, &self.settings) {
+            Ok(()) => Saved::Written,
+            Err(error) => {
+                tracing::warn!(%error, "could not save the settings");
+                Saved::Failed
+            }
         }
     }
 
