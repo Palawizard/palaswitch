@@ -7,6 +7,7 @@
 use std::collections::VecDeque;
 use std::ffi::CString;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -128,6 +129,9 @@ struct MouseThread<H: Hardware> {
     deferred: VecDeque<Command>,
     notify: Box<dyn Fn(Update) + Send>,
     published: Option<MouseState>,
+    /// Set once a reader thread asked for a read, until the read starts: a
+    /// burst of reports wakes the thread once.
+    reports_pending: Arc<AtomicBool>,
 }
 
 /// One open HID++ interface.
@@ -183,6 +187,7 @@ impl<H: Hardware> MouseThread<H> {
             deferred: VecDeque::new(),
             notify,
             published: None,
+            reports_pending: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -282,8 +287,11 @@ impl<H: Hardware> MouseThread<H> {
 
     fn open(&mut self, interface: &Interface) -> Option<Link<H::Transport>> {
         let commands = self.commands.clone();
+        let pending = self.reports_pending.clone();
         let signal: ReportSignal = Arc::new(move || {
-            let _ = commands.send(Command::Reports);
+            if !pending.swap(true, Ordering::AcqRel) {
+                let _ = commands.send(Command::Reports);
+            }
         });
         let transport = match self.hardware.open(interface, signal) {
             Ok(transport) => transport,
@@ -392,6 +400,9 @@ impl<H: Hardware> MouseThread<H> {
     /// notifications, or a sign of life from a sleeping mouse. Answers to
     /// our own requests never get here: each request reads its answer.
     fn read_reports(&mut self) {
+        // Cleared before reading: a report that arrives from now on asks
+        // for another read.
+        self.reports_pending.store(false, Ordering::Release);
         let mut index = 0;
         while index < self.links.len() {
             if self.read_link(index) == Kept::Removed {
