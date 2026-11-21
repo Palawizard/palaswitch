@@ -280,27 +280,27 @@ impl<H: Hardware> MouseThread<H> {
     }
 
     /// Lists the interfaces again (an interface that failed to open is
-    /// tried again), probes the ones whose mouse may have woken up, then
-    /// reads the mouse in use.
+    /// tried again), reads the mouse in use, then probes every interface
+    /// where nothing answered. A refresh comes from the user, so it may
+    /// also probe interfaces whose traffic does not count as a wake-up.
     fn refresh(&mut self) {
-        let mut fresh = self.rediscover();
-        let probed: Vec<CString> = self
-            .links
-            .iter()
-            .filter(|link| matches!(&link.device, Device::Idle { reason, .. } if may_wake(reason)))
-            .map(|link| link.path.clone())
-            .collect();
-        for path in probed {
-            if let Some(index) = self.links.iter().position(|link| link.path == path) {
-                self.reprobe(index);
-            }
-            fresh.push(path);
-        }
-        // A mouse opened or probed again just now has been read already.
+        let fresh = self.rediscover();
+        // A mouse opened just now has been read already.
         if let Some(index) = self.active()
             && !fresh.contains(&self.links[index].path)
         {
             self.read_mouse(index);
+        }
+        let idle: Vec<CString> = self
+            .links
+            .iter()
+            .filter(|link| matches!(link.device, Device::Idle { .. }))
+            .map(|link| link.path.clone())
+            .collect();
+        for path in idle {
+            if let Some(index) = self.links.iter().position(|link| link.path == path) {
+                self.reprobe(index);
+            }
         }
     }
 
