@@ -134,6 +134,9 @@ extern "system" fn field_proc(
     // SAFETY: `data` is the FieldData given in `attach`, alive until the
     // WM_NCDESTROY handled above.
     let field = unsafe { &*(data as *const FieldData) };
+    // Copied so that nothing refers to the field's data while the window
+    // handles a report, which could one day destroy the field.
+    let (texts, report) = (field.texts, field.report);
     let listening = LISTENING
         .with(Cell::get)
         .filter(|listening| listening.field == hwnd.0 as isize);
@@ -157,7 +160,7 @@ extern "system" fn field_proc(
         WM_CHAR | WM_SYSCHAR => return LRESULT(0),
         WM_KILLFOCUS => {
             stop_listening();
-            (field.report)(FieldEvent::Stopped(listening.sector));
+            report(FieldEvent::Stopped(listening.sector));
             // SAFETY: the button still needs to redraw without its focus.
             return unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
         }
@@ -167,9 +170,9 @@ extern "system" fn field_proc(
     match step {
         Step::Holding(mods) => {
             LISTENING.with(|cell| cell.set(Some(listening)));
-            let mut parts = mods_shown(mods, field.texts);
+            let mut parts = mods_shown(mods, texts);
             let text = if parts.is_empty() {
-                field.texts.shortcut_listening.to_owned()
+                texts.shortcut_listening.to_owned()
             } else {
                 parts.push("…".to_owned());
                 parts.join("+")
@@ -179,20 +182,20 @@ extern "system" fn field_proc(
         Step::Done(shortcut) => {
             stop_listening();
             SWALLOW_CHARS.with(|cell| cell.set(true));
-            (field.report)(FieldEvent::Typed(listening.sector, shortcut));
+            report(FieldEvent::Typed(listening.sector, shortcut));
         }
         Step::Cancelled => {
             stop_listening();
-            (field.report)(FieldEvent::Stopped(listening.sector));
+            report(FieldEvent::Stopped(listening.sector));
         }
         Step::Left => {
             stop_listening();
-            (field.report)(FieldEvent::Stopped(listening.sector));
+            report(FieldEvent::Stopped(listening.sector));
             // SAFETY: reads the Shift key state of this thread's input.
             let backwards = unsafe { GetKeyState(i32::from(VK_SHIFT.0)) } < 0;
             // SAFETY: moves the focus to the next or previous control of
-            // our window, as Tab does; the window is not a dialog, so the
-            // dialog manager would not do it.
+            // our window, as Tab does; the field asked for every key, Tab
+            // included, so the message loop left it to the field.
             unsafe {
                 if let Ok(parent) = GetParent(hwnd)
                     && let Ok(next) = GetNextDlgTabItem(parent, Some(hwnd), backwards)

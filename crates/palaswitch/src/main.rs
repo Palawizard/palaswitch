@@ -134,7 +134,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     win::run_message_loop();
 
     // Dropping the app removes the icon at once instead of leaving it until
-    // the pointer passes over it.
+    // the pointer passes over it. It is taken out of the cell first: while
+    // it drops, its settings window may still report to the handler, which
+    // must find the cell free.
     let quitting = app.borrow_mut().take();
     drop(quitting);
     drop(window);
