@@ -21,9 +21,10 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE, DBT_DEVTYP_DEVICEINTERFACE,
     DEV_BROADCAST_DEVICEINTERFACE_W, DEVICE_NOTIFY_WINDOW_HANDLE, DefWindowProcW, DispatchMessageW,
-    FindWindowW, GetMessageW, HDEVNOTIFY, MSG, PostMessageW, PostQuitMessage, RegisterClassW,
-    RegisterDeviceNotificationW, SM_CXSMICON, TranslateMessage, UnregisterDeviceNotification,
-    WM_APP, WM_CLOSE, WM_DEVICECHANGE, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
+    FindWindowW, GetMessageW, HDEVNOTIFY, MSG, PBT_APMRESUMEAUTOMATIC, PostMessageW,
+    PostQuitMessage, RegisterClassW, RegisterDeviceNotificationW, SM_CXSMICON, TranslateMessage,
+    UnregisterDeviceNotification, WM_APP, WM_CLOSE, WM_DEVICECHANGE, WM_POWERBROADCAST,
+    WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -185,6 +186,11 @@ extern "system" fn window_proc(
                 DBT_DEVICEARRIVAL | DBT_DEVICEREMOVECOMPLETE
             ) =>
         {
+            post(hwnd, WM_APP_DEVICES);
+            return LRESULT(1);
+        }
+        // Back from sleep: devices may have come or gone meanwhile.
+        WM_POWERBROADCAST if wparam.0 as u32 == PBT_APMRESUMEAUTOMATIC => {
             post(hwnd, WM_APP_DEVICES);
             return LRESULT(1);
         }
