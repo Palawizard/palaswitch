@@ -48,6 +48,9 @@ pub struct App {
     hotkeys: Option<Hotkeys>,
     conflicts: BTreeMap<u16, Conflict>,
     window: Option<SettingsWindow>,
+    /// Set when the settings file could not be read and is still in place:
+    /// it is not written over until the next start.
+    keep_file: bool,
 }
 
 /// What the app starts with besides the mouse.
@@ -110,13 +113,19 @@ impl App {
                 .ok(),
             conflicts: BTreeMap::new(),
             window: None,
+            keep_file: reset.as_ref().is_some_and(Reset::file_left_in_place),
         };
         app.show_state();
-        if reset.is_some() {
+        if let Some(reset) = &reset {
+            let message = if reset.file_left_in_place() {
+                texts.settings_unreadable_message
+            } else {
+                texts.settings_reset_message
+            };
             win::notify(
                 app.tray.window_handle(),
                 texts.settings_reset_title,
-                texts.settings_reset_message,
+                message,
             );
         }
         app.register_shortcuts();

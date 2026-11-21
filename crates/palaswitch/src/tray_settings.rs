@@ -166,6 +166,11 @@ impl App {
         let Some(path) = config::default_path() else {
             return;
         };
+        if self.keep_file {
+            tracing::warn!("settings not saved: the file could not be read at start-up");
+            self.set_message(Some(self.texts.save_failed));
+            return;
+        }
         if let Err(error) = config::save(&path, &self.settings) {
             tracing::warn!(%error, "could not save the settings");
             self.set_message(Some(self.texts.save_failed));

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -57,10 +57,29 @@ struct FileProfile {
 
 /// The settings could not be used as they were.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Reset {
-    pub reason: String,
-    /// Where the unreadable file was moved, if it could be.
-    pub kept_at: Option<PathBuf>,
+pub enum Reset {
+    /// The file is not valid; it was moved to `kept_at` when that worked.
+    Invalid {
+        reason: String,
+        kept_at: Option<PathBuf>,
+    },
+    /// The file could not be read, maybe only for a moment (another
+    /// program had it open): it is left in place.
+    Unreadable { reason: String },
+}
+
+impl Reset {
+    /// Whether the file the app would write over is still the user's: then
+    /// nothing is saved until the next start.
+    pub fn file_left_in_place(&self) -> bool {
+        !matches!(
+            self,
+            Self::Invalid {
+                kept_at: Some(_),
+                ..
+            }
+        )
+    }
 }
 
 /// Reads the settings. A missing file gives the defaults; an invalid one is
@@ -71,19 +90,24 @@ pub fn load(path: &Path) -> (Settings, Option<Reset>) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return (Settings::default(), None);
         }
-        Err(error) => return (Settings::default(), Some(reset(path, error.to_string()))),
+        Err(error) => {
+            tracing::warn!(%error, "settings file unreadable, defaults used");
+            let reason = error.to_string();
+            return (Settings::default(), Some(Reset::Unreadable { reason }));
+        }
     };
     match parse(&text) {
         Ok(settings) => (settings, None),
-        Err(reason) => (Settings::default(), Some(reset(path, reason))),
+        Err(reason) => {
+            let backup = backup_path(path);
+            let kept_at = fs::rename(path, &backup).ok().map(|()| backup);
+            tracing::warn!(reason, ?kept_at, "settings reset to defaults");
+            (
+                Settings::default(),
+                Some(Reset::Invalid { reason, kept_at }),
+            )
+        }
     }
-}
-
-fn reset(path: &Path, reason: String) -> Reset {
-    let backup = backup_path(path);
-    let kept_at = fs::rename(path, &backup).ok().map(|()| backup);
-    tracing::warn!(reason, ?kept_at, "settings reset to defaults");
-    Reset { reason, kept_at }
 }
 
 fn backup_path(path: &Path) -> PathBuf {
@@ -174,7 +198,12 @@ pub fn save(path: &Path, settings: &Settings) -> io::Result<()> {
     let mut temporary = path.as_os_str().to_owned();
     temporary.push(".tmp");
     let temporary = PathBuf::from(temporary);
-    fs::write(&temporary, to_text(settings))?;
+    let mut file = fs::File::create(&temporary)?;
+    file.write_all(to_text(settings).as_bytes())?;
+    // On disk before the rename, so that a power cut cannot leave an
+    // empty file in place of the settings.
+    file.sync_all()?;
+    drop(file);
     fs::rename(&temporary, path)
 }
 
@@ -270,12 +299,32 @@ shortcut = "Ctrl+Alt+F2"
 
         let reset = reset.expect("reset");
         assert_eq!(settings, Settings::default());
-        assert_eq!(reset.kept_at, Some(dir.0.join("settings.toml.bak")));
+        assert!(!reset.file_left_in_place());
+        let Reset::Invalid { kept_at, .. } = reset else {
+            panic!("not invalid: {reset:?}");
+        };
+        assert_eq!(kept_at, Some(dir.0.join("settings.toml.bak")));
         assert!(!dir.file().exists());
         assert_eq!(
             fs::read_to_string(dir.0.join("settings.toml.bak")).unwrap(),
             "start_with_windows = maybe"
         );
+    }
+
+    #[test]
+    fn unreadable_file_is_left_in_place() {
+        let dir = TempDir::new("unreadable");
+        // A folder where the file should be cannot be read as a file.
+        fs::create_dir_all(dir.file()).unwrap();
+
+        let (settings, reset) = load(&dir.file());
+
+        let reset = reset.expect("reset");
+        assert_eq!(settings, Settings::default());
+        assert!(matches!(reset, Reset::Unreadable { .. }));
+        assert!(reset.file_left_in_place());
+        assert!(dir.file().is_dir());
+        assert!(!dir.0.join("settings.toml.bak").exists());
     }
 
     #[test]
