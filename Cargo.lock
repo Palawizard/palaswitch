@@ -758,6 +758,8 @@ name = "palaswitch"
 version = "0.1.0"
 dependencies = [
  "embed-manifest",
+ "tracing",
+ "tracing-subscriber",
  "tray-icon",
  "windows",
 ]

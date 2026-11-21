@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod logs;
 mod text;
 
 use std::error::Error;
@@ -16,6 +17,10 @@ use text::{Language, texts};
 const ICON_SIZE: u32 = 32;
 
 fn main() -> Result<(), Box<dyn Error>> {
+    logs::init(logs::default_dir().as_deref());
+    std::panic::set_hook(Box::new(|info| tracing::error!(%info, "panic")));
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting");
+
     // SAFETY: no arguments, only reads the user's language setting.
     let language = Language::from_windows_lang_id(unsafe { GetUserDefaultUILanguage() });
     let texts = texts(language);
