@@ -34,6 +34,10 @@ pub struct Texts {
     pub switch_failed_no_mouse: &'static str,
     pub switch_failed_other: &'static str,
     pub switch_failed_stopped: &'static str,
+    pub settings_reset_title: &'static str,
+    pub settings_reset_message: &'static str,
+    pub shortcut_taken_title: &'static str,
+    pub shortcut_taken_message: &'static str,
     pub key_ctrl: &'static str,
     pub key_alt: &'static str,
     pub key_shift: &'static str,
@@ -78,6 +82,10 @@ static FRENCH: Texts = Texts {
     switch_failed_no_mouse: "Souris introuvable. Rebranche-la ou rebranche le récepteur.",
     switch_failed_other: "La souris a refusé le changement. Réessaie.",
     switch_failed_stopped: "palaswitch ne répond plus. Quitte-le et relance-le.",
+    settings_reset_title: "Réglages remis à zéro",
+    settings_reset_message: "Le fichier de réglages était illisible. L’ancien est gardé à côté, en .bak.",
+    shortcut_taken_title: "Raccourci déjà pris",
+    shortcut_taken_message: "{list} : déjà utilisé par un autre programme. Choisis-en un autre dans les réglages.",
     key_ctrl: "Ctrl",
     key_alt: "Alt",
     key_shift: "Maj",
@@ -108,6 +116,10 @@ static ENGLISH: Texts = Texts {
     switch_failed_no_mouse: "Mouse not found. Plug it or its receiver back in.",
     switch_failed_other: "The mouse refused the change. Try again.",
     switch_failed_stopped: "palaswitch stopped responding. Quit it and start it again.",
+    settings_reset_title: "Settings reset",
+    settings_reset_message: "The settings file could not be read. The old one is kept next to it, as .bak.",
+    shortcut_taken_title: "Shortcut already in use",
+    shortcut_taken_message: "{list}: already used by another program. Pick another one in the settings.",
     key_ctrl: "Ctrl",
     key_alt: "Alt",
     key_shift: "Shift",
@@ -155,6 +167,13 @@ mod tests {
     }
 
     #[test]
+    fn list_texts_have_their_list_in_both_languages() {
+        for texts in [&FRENCH, &ENGLISH] {
+            assert!(texts.shortcut_taken_message.contains("{list}"));
+        }
+    }
+
+    #[test]
     fn no_text_is_empty() {
         for texts in [&FRENCH, &ENGLISH] {
             let all = [
@@ -169,6 +188,10 @@ mod tests {
                 texts.switch_failed_no_mouse,
                 texts.switch_failed_other,
                 texts.switch_failed_stopped,
+                texts.settings_reset_title,
+                texts.settings_reset_message,
+                texts.shortcut_taken_title,
+                texts.shortcut_taken_message,
                 texts.key_ctrl,
                 texts.key_alt,
                 texts.key_shift,

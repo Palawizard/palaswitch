@@ -1,11 +1,14 @@
 //! The tray icon and its menu, on the interface thread.
 
+use std::collections::BTreeMap;
 use std::sync::mpsc::Receiver;
 
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
+use crate::config::{Reset, Settings};
 use crate::gdi::SystemFont;
+use crate::hotkeys::{Conflict, Hotkeys};
 use crate::icon::picture;
 use crate::model::{Failure, IconKind, MenuModel, MouseState, tooltip};
 use crate::text::Texts;
@@ -16,6 +19,8 @@ use crate::worker::{Command, Update, Worker};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiEvent {
     Menu(MenuId),
+    /// A registered shortcut was pressed.
+    Hotkey(u32),
     /// The pointer came over the icon: the menu may open soon.
     PointerOver,
 }
@@ -34,15 +39,31 @@ pub struct App {
     state: MouseState,
     light_taskbar: bool,
     drawn: Option<(IconKind, bool, usize)>,
+    settings: Settings,
+    hotkeys: Option<Hotkeys>,
+    conflicts: BTreeMap<u16, Conflict>,
+}
+
+/// What the app starts with besides the mouse.
+pub struct Startup {
+    pub texts: &'static Texts,
+    pub settings: Settings,
+    /// Set when the settings file could not be used.
+    pub reset: Option<Reset>,
 }
 
 impl App {
     pub fn new(
-        texts: &'static Texts,
+        startup: Startup,
         worker: Worker,
         updates: Receiver<Update>,
         events: Receiver<UiEvent>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        let Startup {
+            texts,
+            settings,
+            reset,
+        } = startup;
         let status = MenuItem::new("", false, None);
         let quit = MenuItem::new(texts.quit, true, None);
         let menu = Menu::new();
@@ -53,7 +74,7 @@ impl App {
         let size = win::small_icon_size();
         let kind = IconKind::of(&state);
         let tray = TrayIconBuilder::new()
-            .with_tooltip(tooltip(&state, texts))
+            .with_tooltip(tooltip(&state, texts, &settings))
             .with_icon(draw(kind, size, light_taskbar)?)
             .with_menu(Box::new(menu.clone()))
             .build()?;
@@ -74,9 +95,49 @@ impl App {
             state,
             light_taskbar,
             drawn: Some((kind, light_taskbar, size)),
+            settings,
+            hotkeys: Hotkeys::new()
+                .inspect_err(|error| tracing::error!(%error, "cannot register shortcuts"))
+                .ok(),
+            conflicts: BTreeMap::new(),
         };
         app.show_state();
+        if reset.is_some() {
+            win::notify(
+                app.tray.window_handle(),
+                texts.settings_reset_title,
+                texts.settings_reset_message,
+            );
+        }
+        app.apply_shortcuts();
         Ok(app)
+    }
+
+    /// Registers the shortcuts of the settings and says which ones another
+    /// program already holds.
+    fn apply_shortcuts(&mut self) {
+        let Some(hotkeys) = self.hotkeys.as_mut() else {
+            return;
+        };
+        self.conflicts = hotkeys.apply(&self.settings);
+        let taken: Vec<String> = self
+            .conflicts
+            .keys()
+            .filter_map(|sector| {
+                let shortcut = self.settings.profiles.get(sector)?.shortcut?;
+                Some(shortcut.shown(self.texts))
+            })
+            .collect();
+        if !taken.is_empty() {
+            win::notify(
+                self.tray.window_handle(),
+                self.texts.shortcut_taken_title,
+                &self
+                    .texts
+                    .shortcut_taken_message
+                    .replace("{list}", &taken.join(", ")),
+            );
+        }
     }
 
     pub fn handle(&mut self, event: win::WindowEvent) {
@@ -121,6 +182,15 @@ impl App {
             UiEvent::PointerOver => {
                 self.worker.send(Command::Refresh);
             }
+            UiEvent::Hotkey(id) => {
+                let sector = self.hotkeys.as_ref().and_then(|hotkeys| hotkeys.sector(id));
+                if let Some(sector) = sector {
+                    tracing::info!(sector, "shortcut pressed");
+                    if !self.worker.send(Command::SwitchTo(sector)) {
+                        self.on_update(Update::SwitchFailed(Failure::Stopped));
+                    }
+                }
+            }
             UiEvent::Menu(id) if id == *self.quit.id() => win::quit(),
             UiEvent::Menu(id) => {
                 let sector = self
@@ -144,7 +214,7 @@ impl App {
     }
 
     fn show_state(&mut self) {
-        let model = MenuModel::of(&self.state, self.texts);
+        let model = MenuModel::of(&self.state, self.texts, &self.settings);
         self.show_status(model.status);
         self.show_profiles(&model);
         let kind = IconKind::of(&self.state);
@@ -156,9 +226,9 @@ impl App {
                 Err(error) => tracing::warn!(%error, "could not draw the tray icon"),
             }
         }
-        if let Err(error) = self
-            .tray
-            .set_tooltip(Some(tooltip(&self.state, self.texts)))
+        if let Err(error) =
+            self.tray
+                .set_tooltip(Some(tooltip(&self.state, self.texts, &self.settings)))
         {
             tracing::warn!(%error, "could not change the tooltip");
         }

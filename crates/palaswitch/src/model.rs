@@ -4,6 +4,7 @@ use palaswitch_device::Connection;
 use palaswitch_hidpp::Error;
 use palaswitch_hidpp::features::Profile;
 
+use crate::config::Settings;
 use crate::text::Texts;
 
 /// The mouse as the mouse thread last saw it.
@@ -109,8 +110,8 @@ pub struct MenuModel {
 
 impl MenuModel {
     /// Enabled profiles, plus the active one if the device made a disabled
-    /// profile active.
-    pub fn of(state: &MouseState, texts: &Texts) -> Self {
+    /// profile active, under the names chosen in `settings`.
+    pub fn of(state: &MouseState, texts: &Texts, settings: &Settings) -> Self {
         match state {
             MouseState::Searching => Self::status_only(texts.searching),
             MouseState::Absent { asleep: true } => Self::status_only(texts.mouse_asleep),
@@ -123,7 +124,7 @@ impl MenuModel {
                     .filter(|profile| profile.enabled || view.active == Some(profile.sector))
                     .map(|profile| MenuProfile {
                         sector: profile.sector,
-                        label: profile_label(profile, texts),
+                        label: profile_label(profile, texts, settings),
                         checked: view.active == Some(profile.sector),
                     })
                     .collect(),
@@ -139,7 +140,16 @@ impl MenuModel {
     }
 }
 
-fn profile_label(profile: &Profile, texts: &Texts) -> String {
+/// The name the user gave the profile, or "Profile n".
+pub fn profile_label(profile: &Profile, texts: &Texts, settings: &Settings) -> String {
+    if let Some(name) = settings
+        .profiles
+        .get(&profile.sector)
+        .and_then(|chosen| chosen.name.as_deref())
+        .filter(|name| !name.trim().is_empty())
+    {
+        return name.to_owned();
+    }
     let template = if profile.is_rom() {
         texts.factory_profile
     } else {
@@ -149,8 +159,8 @@ fn profile_label(profile: &Profile, texts: &Texts) -> String {
 }
 
 /// Tooltip of the tray icon: the app name, then what the menu would say.
-pub fn tooltip(state: &MouseState, texts: &Texts) -> String {
-    let menu = MenuModel::of(state, texts);
+pub fn tooltip(state: &MouseState, texts: &Texts, settings: &Settings) -> String {
+    let menu = MenuModel::of(state, texts, settings);
     let detail = menu
         .profiles
         .iter()
@@ -203,7 +213,11 @@ mod tests {
 
     #[test]
     fn menu_lists_enabled_profiles_with_the_active_one_checked() {
-        let model = MenuModel::of(&present(Some(2), false), texts(Language::French));
+        let model = MenuModel::of(
+            &present(Some(2), false),
+            texts(Language::French),
+            &Settings::default(),
+        );
 
         assert_eq!(model.status, None);
         assert_eq!(
@@ -214,7 +228,11 @@ mod tests {
 
     #[test]
     fn menu_keeps_a_disabled_profile_the_device_made_active() {
-        let model = MenuModel::of(&present(Some(5), false), texts(Language::English));
+        let model = MenuModel::of(
+            &present(Some(5), false),
+            texts(Language::English),
+            &Settings::default(),
+        );
 
         assert_eq!(
             labels(&model),
@@ -224,6 +242,26 @@ mod tests {
                 ("Profile 3", false),
                 ("Profile 5", true)
             ]
+        );
+    }
+
+    #[test]
+    fn menu_uses_the_names_chosen_in_the_settings() {
+        let settings = crate::config::parse(
+            "[[profile]]
+sector = 2
+name = \"Jeu\"
+[[profile]]
+sector = 3
+name = \"  \"",
+        )
+        .expect("settings");
+
+        let model = MenuModel::of(&present(Some(2), false), texts(Language::French), &settings);
+
+        assert_eq!(
+            labels(&model),
+            [("Profil 1", false), ("Jeu", true), ("Profil 3", false)]
         );
     }
 
@@ -240,7 +278,7 @@ mod tests {
             unreachable: false,
         });
 
-        let model = MenuModel::of(&state, texts(Language::French));
+        let model = MenuModel::of(&state, texts(Language::French), &Settings::default());
 
         assert_eq!(labels(&model), [("Profil d’usine 1", true)]);
         assert_eq!(IconKind::of(&state), IconKind::Profile(1));
@@ -250,7 +288,7 @@ mod tests {
     fn sleeping_mouse_keeps_its_profiles_under_a_hint() {
         let texts = texts(Language::French);
 
-        let model = MenuModel::of(&present(Some(1), true), texts);
+        let model = MenuModel::of(&present(Some(1), true), texts, &Settings::default());
 
         assert_eq!(model.status, Some(texts.mouse_asleep));
         assert_eq!(model.profiles.len(), 3);
@@ -265,7 +303,7 @@ mod tests {
             MouseState::Absent { asleep: true },
         ];
 
-        let models = states.map(|state| MenuModel::of(&state, texts));
+        let models = states.map(|state| MenuModel::of(&state, texts, &Settings::default()));
 
         assert!(models.iter().all(|model| model.profiles.is_empty()));
         assert_eq!(
@@ -304,9 +342,13 @@ mod tests {
 
         assert_eq!(
             [
-                tooltip(&present(Some(2), false), texts),
-                tooltip(&MouseState::Absent { asleep: false }, texts),
-                tooltip(&present(None, false), texts),
+                tooltip(&present(Some(2), false), texts, &Settings::default()),
+                tooltip(
+                    &MouseState::Absent { asleep: false },
+                    texts,
+                    &Settings::default()
+                ),
+                tooltip(&present(None, false), texts, &Settings::default()),
             ],
             [
                 "palaswitch\nProfile 2",

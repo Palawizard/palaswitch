@@ -4,6 +4,7 @@ mod capture;
 mod config;
 mod gdi;
 mod hardware;
+mod hotkeys;
 mod icon;
 mod logs;
 mod model;
@@ -19,11 +20,12 @@ use std::process::ExitCode;
 use std::rc::Rc;
 use std::sync::mpsc;
 
+use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
 use tray_icon::menu::MenuEvent;
 use tray_icon::{MouseButtonState, TrayIconEvent};
 
 use text::{Language, texts};
-use tray::{App, UiEvent};
+use tray::{App, Startup, UiEvent};
 use win::HiddenWindow;
 use worker::Worker;
 
@@ -58,6 +60,10 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let texts = texts(Language::from_windows_lang_id(win::ui_language_id()));
+    let (settings, reset) = match config::default_path() {
+        Some(path) => config::load(&path),
+        None => (config::Settings::default(), None),
+    };
 
     let app: Rc<RefCell<Option<App>>> = Rc::new(RefCell::new(None));
     let window = {
@@ -72,6 +78,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let (ui_sender, ui_events) = mpsc::channel();
     let menu_sender = ui_sender.clone();
+    let hotkey_sender = ui_sender.clone();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let _ = menu_sender.send(UiEvent::Menu(event.id));
         doorbell.ring();
@@ -93,13 +100,25 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }));
 
+    GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
+        if event.state == HotKeyState::Pressed {
+            let _ = hotkey_sender.send(UiEvent::Hotkey(event.id));
+            doorbell.ring();
+        }
+    }));
+
     let (update_sender, updates) = mpsc::channel();
     let worker = Worker::spawn(move |update| {
         let _ = update_sender.send(update);
         doorbell.ring();
     })?;
 
-    *app.borrow_mut() = Some(App::new(texts, worker, updates, ui_events)?);
+    let startup = Startup {
+        texts,
+        settings,
+        reset,
+    };
+    *app.borrow_mut() = Some(App::new(startup, worker, updates, ui_events)?);
     win::run_message_loop();
 
     // Dropping the app removes the icon at once instead of leaving it until
