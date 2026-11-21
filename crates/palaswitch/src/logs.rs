@@ -193,11 +193,7 @@ mod tests {
         file.write_all(&line(3)).unwrap();
 
         let current = fs::read_to_string(dir.0.join(FILE_NAME)).unwrap();
-        assert_eq!(
-            current,
-            "line 0003
-"
-        );
+        assert_eq!(current, "line 0003\n");
     }
 
     #[test]
