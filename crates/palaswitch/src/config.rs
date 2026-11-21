@@ -88,8 +88,8 @@ impl Reset {
 /// Reads the settings. A missing file gives the defaults; an invalid one is
 /// moved to `settings.toml.bak` and also gives the defaults.
 pub fn load(path: &Path) -> (Settings, Option<Reset>) {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return (Settings::default(), None);
         }
@@ -99,7 +99,11 @@ pub fn load(path: &Path) -> (Settings, Option<Reset>) {
             return (Settings::default(), Some(Reset::Unreadable { reason }));
         }
     };
-    match parse(&text) {
+    // A file saved in another encoding is not valid, and stays so.
+    let parsed = String::from_utf8(bytes)
+        .map_err(|_| "not UTF-8 text".to_owned())
+        .and_then(|text| parse(&text));
+    match parsed {
         Ok(settings) => (settings, None),
         Err(reason) => {
             let backup = backup_path(path);
@@ -313,6 +317,26 @@ shortcut = "Ctrl+Alt+F2"
             fs::read_to_string(dir.0.join("settings.toml.bak")).unwrap(),
             "start_with_windows = maybe"
         );
+    }
+
+    #[test]
+    fn file_in_another_encoding_is_kept_aside() {
+        let dir = TempDir::new("encoding");
+        // "start_with_windows = true # é" in Windows-1252.
+        let mut bytes = b"start_with_windows = true # ".to_vec();
+        bytes.push(0xE9);
+        fs::write(dir.file(), &bytes).unwrap();
+
+        let (_, reset) = load(&dir.file());
+
+        assert!(matches!(
+            reset,
+            Some(Reset::Invalid {
+                kept_at: Some(_),
+                ..
+            })
+        ));
+        assert_eq!(fs::read(dir.0.join("settings.toml.bak")).unwrap(), bytes);
     }
 
     #[test]
