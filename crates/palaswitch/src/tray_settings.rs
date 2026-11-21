@@ -181,9 +181,11 @@ impl App {
         let Some(path) = config::default_path() else {
             return Saved::Failed;
         };
-        if self.keep_file {
-            tracing::warn!("settings not saved: the file could not be read at start-up");
-            return Saved::Blocked;
+        if let Some(keep) = self.keep_file {
+            tracing::warn!("settings not saved: the file could not be used at start-up");
+            return Saved::Blocked {
+                invalid: keep.invalid,
+            };
         }
         match config::save(&path, &self.settings) {
             Ok(()) => Saved::Written,

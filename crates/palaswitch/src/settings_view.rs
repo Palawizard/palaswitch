@@ -114,9 +114,12 @@ pub fn rename(settings: &Settings, sector: u16, text: &str) -> Settings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Saved {
     Written,
-    /// The file could not be read at start-up and is left alone until the
-    /// next start.
-    Blocked,
+    /// The file could not be used at start-up and is left alone: it could
+    /// not be read (`invalid` false) or is not valid and could not be set
+    /// aside (`invalid` true).
+    Blocked {
+        invalid: bool,
+    },
     Failed,
 }
 
@@ -126,7 +129,8 @@ impl Saved {
     pub fn message(self, texts: &Texts) -> Option<&'static str> {
         match self {
             Self::Written => None,
-            Self::Blocked => Some(texts.save_blocked),
+            Self::Blocked { invalid: false } => Some(texts.save_blocked),
+            Self::Blocked { invalid: true } => Some(texts.save_blocked_invalid),
             Self::Failed => Some(texts.save_failed),
         }
     }
@@ -344,12 +348,22 @@ mod tests {
     fn a_write_that_did_not_happen_keeps_saying_so() {
         let texts = texts(Language::French);
 
-        let messages =
-            [Saved::Written, Saved::Blocked, Saved::Failed].map(|saved| saved.message(texts));
+        let messages = [
+            Saved::Written,
+            Saved::Blocked { invalid: false },
+            Saved::Blocked { invalid: true },
+            Saved::Failed,
+        ]
+        .map(|saved| saved.message(texts));
 
         assert_eq!(
             messages,
-            [None, Some(texts.save_blocked), Some(texts.save_failed)]
+            [
+                None,
+                Some(texts.save_blocked),
+                Some(texts.save_blocked_invalid),
+                Some(texts.save_failed)
+            ]
         );
     }
 

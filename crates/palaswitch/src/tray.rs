@@ -50,7 +50,14 @@ pub struct App {
     window: Option<SettingsWindow>,
     /// Set when the settings file could not be read and is still in place:
     /// it is not written over until the next start.
-    keep_file: bool,
+    keep_file: Option<KeepFile>,
+}
+
+/// Why the settings file is left alone until the next start.
+#[derive(Debug, Clone, Copy)]
+struct KeepFile {
+    /// Not valid and could not be set aside, rather than unreadable.
+    invalid: bool,
 }
 
 /// What the app starts with besides the mouse.
@@ -114,7 +121,13 @@ impl App {
                 .ok(),
             conflicts: BTreeMap::new(),
             window: None,
-            keep_file: reset.as_ref().is_some_and(Reset::file_left_in_place),
+            keep_file: reset.as_ref().and_then(|reset| match reset {
+                Reset::Unreadable { .. } => Some(KeepFile { invalid: false }),
+                Reset::Invalid { kept_at: None, .. } => Some(KeepFile { invalid: true }),
+                Reset::Invalid {
+                    kept_at: Some(_), ..
+                } => None,
+            }),
         };
         app.show_state();
         if let Some(reset) = &reset {
