@@ -69,6 +69,7 @@ pub fn listen(field: HWND, sector: u16, texts: &Texts) -> bool {
         return false;
     }
     stop_listening();
+    RELEASING.with(|cell| cell.set(None));
     LISTENING.with(|cell| {
         cell.set(Some(Listening {
             field: field.0 as isize,
@@ -252,4 +253,61 @@ extern "system" fn field_proc(
         }
     }
     LRESULT(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const A: isize = 0x10;
+    const B: isize = 0x20;
+    const VK_F1: u16 = 0x70;
+    const VK_TAB: u16 = 0x09;
+
+    fn message(field: isize, message: u32, vk: u16) -> MSG {
+        MSG {
+            hwnd: HWND(field as *mut _),
+            message,
+            wParam: WPARAM(usize::from(vk)),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn keys_of_the_listening_field_go_to_it_untranslated() {
+        LISTENING.with(|cell| {
+            cell.set(Some(Listening {
+                field: A,
+                sector: 1,
+                capture: Capture::default(),
+            }));
+        });
+
+        let routed = [
+            message(A, WM_KEYDOWN, VK_F1),
+            message(A, WM_SYSKEYUP, VK_F1),
+            message(A, WM_CHAR, VK_F1),
+            message(B, WM_KEYDOWN, VK_F1),
+        ]
+        .map(|message| wants_raw_key(&message));
+        LISTENING.with(|cell| cell.set(None));
+
+        assert_eq!(routed, [true, true, false, false]);
+    }
+
+    #[test]
+    fn only_the_held_final_key_goes_to_its_field_untranslated() {
+        RELEASING.with(|cell| cell.set(Some((A, Releasing(VK_F1)))));
+
+        let routed = [
+            message(A, WM_KEYDOWN, VK_F1),
+            message(A, WM_KEYUP, VK_F1),
+            message(A, WM_KEYDOWN, VK_TAB),
+            message(B, WM_KEYDOWN, VK_F1),
+        ]
+        .map(|message| wants_raw_key(&message));
+        RELEASING.with(|cell| cell.set(None));
+
+        assert_eq!(routed, [true, true, false, false]);
+    }
 }
