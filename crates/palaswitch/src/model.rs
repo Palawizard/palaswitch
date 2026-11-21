@@ -158,6 +158,12 @@ pub fn profile_label(profile: &Profile, texts: &Texts, settings: &Settings) -> S
     Texts::numbered(template, profile.number())
 }
 
+/// A label as a menu shows it: a single `&` would underline the next letter
+/// as a keyboard accelerator instead of being shown.
+pub fn menu_text(label: &str) -> String {
+    label.replace('&', "&&")
+}
+
 /// Tooltip of the tray icon: the app name, then what the menu would say.
 pub fn tooltip(state: &MouseState, texts: &Texts, settings: &Settings) -> String {
     let menu = MenuModel::of(state, texts, settings);
@@ -263,6 +269,11 @@ name = \"  \"",
             labels(&model),
             [("Profil 1", false), ("Jeu", true), ("Profil 3", false)]
         );
+    }
+
+    #[test]
+    fn ampersands_are_doubled_for_the_menu() {
+        assert_eq!(menu_text("R&D && co"), "R&&D &&&& co");
     }
 
     #[test]

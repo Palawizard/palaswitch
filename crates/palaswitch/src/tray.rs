@@ -10,7 +10,7 @@ use crate::config::{Reset, Settings};
 use crate::gdi::SystemFont;
 use crate::hotkeys::{Conflict, Hotkeys};
 use crate::icon::picture;
-use crate::model::{Failure, IconKind, MenuModel, MouseState, tooltip};
+use crate::model::{Failure, IconKind, MenuModel, MouseState, menu_text, tooltip};
 use crate::settings_window::SettingsWindow;
 use crate::text::Texts;
 use crate::win;
@@ -291,7 +291,7 @@ impl App {
                 .iter()
                 .zip(&model.profiles)
                 .all(|((sector, item), entry)| {
-                    *sector == entry.sector && item.text() == entry.label
+                    *sector == entry.sector && item.text() == menu_text(&entry.label)
                 });
         if !same_entries {
             for (_, item) in self.profiles.drain(..) {
@@ -299,7 +299,7 @@ impl App {
             }
             let first = usize::from(self.status_shown);
             for (offset, entry) in model.profiles.iter().enumerate() {
-                let item = CheckMenuItem::new(&entry.label, true, entry.checked, None);
+                let item = CheckMenuItem::new(menu_text(&entry.label), true, entry.checked, None);
                 if let Err(error) = self.menu.insert(&item, first + offset) {
                     tracing::warn!(%error, "could not add a profile to the menu");
                 }

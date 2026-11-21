@@ -42,6 +42,9 @@ const ID_DETAIL: u16 = 0x4001;
 const ID_MESSAGE: u16 = 0x4002;
 const ID_START: u16 = 0x4003;
 const KIND_MASK: u16 = 0xF000;
+/// Static text shown as is: an ampersand in a profile name is not taken for
+/// a keyboard accelerator. From WinUser.h.
+const SS_NOPREFIX: WINDOW_STYLE = WINDOW_STYLE(0x0080);
 
 // Layout in device-independent pixels.
 const MARGIN: i32 = 20;
@@ -174,16 +177,11 @@ impl SettingsWindow {
         let child = |class: PCWSTR, text: &str, style: WINDOW_STYLE, id: u16| {
             create_child(hwnd, class, text, style, id)
         };
-        let title = child(w!("STATIC"), "", WINDOW_STYLE(0), 0);
-        let detail = child(w!("STATIC"), "", WINDOW_STYLE(0), ID_DETAIL);
-        let name_header = child(w!("STATIC"), texts.settings_name_header, WINDOW_STYLE(0), 0);
-        let shortcut_header = child(
-            w!("STATIC"),
-            texts.settings_shortcut_header,
-            WINDOW_STYLE(0),
-            0,
-        );
-        let message = child(w!("STATIC"), "", WINDOW_STYLE(0), ID_MESSAGE);
+        let title = child(w!("STATIC"), "", SS_NOPREFIX, 0);
+        let detail = child(w!("STATIC"), "", SS_NOPREFIX, ID_DETAIL);
+        let name_header = child(w!("STATIC"), texts.settings_name_header, SS_NOPREFIX, 0);
+        let shortcut_header = child(w!("STATIC"), texts.settings_shortcut_header, SS_NOPREFIX, 0);
+        let message = child(w!("STATIC"), "", SS_NOPREFIX, ID_MESSAGE);
         let start = child(
             w!("BUTTON"),
             texts.start_with_windows,
