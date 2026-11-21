@@ -27,7 +27,7 @@ Run `palaswitch.exe`. An icon appears in the notification area with the number o
 
 Click the icon to open the menu: it lists the enabled profiles with the active one ticked. Choose a profile to make it active, or Quit to close the app. A wireless mouse that has not moved for a few minutes goes to sleep and does not answer: move it, then try again. If a change fails, Windows shows a short notification.
 
-Only one copy of the app runs at a time. Logs go to `%LOCALAPPDATA%\palaswitch\logs` (at most 2 MB).
+With two mice with onboard profiles paired to the same receiver, only the first one is used. Only one copy of the app runs at a time. Logs go to `%LOCALAPPDATA%\palaswitch\logs` (at most 2 MB).
 
 Do not run G HUB or Onboard Memory Manager while palaswitch is running: they talk to the mouse on the same channel.
 
