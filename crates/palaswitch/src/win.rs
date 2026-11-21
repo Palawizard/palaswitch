@@ -24,8 +24,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DefWindowProcW, DestroyWindow, DispatchMessageW, FindWindowW, GetMessageW,
     GetWindowThreadProcessId, HDEVNOTIFY, IsDialogMessageW, MSG, PBT_APMRESUMEAUTOMATIC,
     PostMessageW, PostQuitMessage, RegisterClassW, RegisterDeviceNotificationW, SM_CXSMICON,
-    TranslateMessage, UnregisterDeviceNotification, WM_APP, WM_CLOSE, WM_DEVICECHANGE,
-    WM_POWERBROADCAST, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
+    SPI_SETHIGHCONTRAST, TranslateMessage, UnregisterDeviceNotification, WM_APP, WM_CLOSE,
+    WM_DEVICECHANGE, WM_POWERBROADCAST, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WNDCLASSW,
+    WS_EX_TOOLWINDOW, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -207,7 +208,15 @@ extern "system" fn window_proc(
             post(hwnd, WM_APP_DEVICES);
             return LRESULT(1);
         }
-        WM_SETTINGCHANGE if is_color_set_change(lparam) => {
+        // Light or dark theme, high contrast turned on or off, or new
+        // system colours.
+        WM_SETTINGCHANGE
+            if is_color_set_change(lparam) || wparam.0 as u32 == SPI_SETHIGHCONTRAST.0 =>
+        {
+            post(hwnd, WM_APP_THEME);
+            None
+        }
+        WM_SYSCOLORCHANGE => {
             post(hwnd, WM_APP_THEME);
             None
         }
