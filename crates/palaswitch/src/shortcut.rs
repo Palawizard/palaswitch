@@ -203,6 +203,10 @@ static KEYS: &[Key] = &[
 
 impl Key {
     /// The key for a Windows virtual-key code, if shortcuts can use it.
+    pub fn vk(self) -> u16 {
+        self.vk
+    }
+
     pub fn from_vk(vk: u16) -> Option<Self> {
         KEYS.iter().copied().find(|key| key.vk == vk)
     }
@@ -244,6 +248,9 @@ pub enum Refusal {
     WinKey,
     /// Windows uses it everywhere: taking it would break it in every app.
     Reserved,
+    /// Ctrl+Alt is also AltGr: on the active keyboard layout, it types a
+    /// character that no app could get any more.
+    AltGr,
 }
 
 /// Combinations Windows uses in every app, which a global shortcut would
@@ -263,6 +270,16 @@ impl Shortcut {
             return Err(Refusal::Reserved);
         }
         Ok(self)
+    }
+
+    /// [`Self::check`], and also refuses a Ctrl+Alt shortcut for which
+    /// `types_with_altgr` says the keyboard types a character.
+    pub fn check_typed(self, types_with_altgr: impl Fn(Self) -> bool) -> Result<Self, Refusal> {
+        let shortcut = self.check()?;
+        if shortcut.mods.ctrl && shortcut.mods.alt && types_with_altgr(shortcut) {
+            return Err(Refusal::AltGr);
+        }
+        Ok(shortcut)
     }
 
     /// As shown to the user, in the language of `texts`.
@@ -433,6 +450,18 @@ mod tests {
                 Err(Refusal::Reserved)
             ]
         );
+    }
+
+    #[test]
+    fn ctrl_alt_keys_that_type_with_altgr_are_refused() {
+        // Stands for a French layout, where AltGr+0 types @ and AltGr+F1
+        // types nothing.
+        let types = |shortcut: Shortcut| shortcut.key.id == "0";
+
+        let checks = ["Ctrl+Alt+0", "Ctrl+Alt+F1", "Ctrl+0", "Alt+0"]
+            .map(|text| shortcut(text).check_typed(types).map(|_| ()));
+
+        assert_eq!(checks, [Err(Refusal::AltGr), Ok(()), Ok(()), Ok(())]);
     }
 
     #[test]

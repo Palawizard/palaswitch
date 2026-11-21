@@ -150,6 +150,7 @@ impl ShortcutProblem {
             Self::Refused(Refusal::NeedsModifier) => texts.shortcut_needs_modifier.to_owned(),
             Self::Refused(Refusal::WinKey) => texts.shortcut_win_key.to_owned(),
             Self::Refused(Refusal::Reserved) => texts.shortcut_reserved.to_owned(),
+            Self::Refused(Refusal::AltGr) => texts.shortcut_altgr.to_owned(),
             Self::UsedBy(name) => texts.shortcut_used_by.replace("{name}", name),
             Self::Taken => texts.shortcut_taken.to_owned(),
             Self::RefusedByWindows => texts.shortcut_windows_refused.to_owned(),
@@ -159,14 +160,18 @@ impl ShortcutProblem {
 
 /// `settings` with `shortcut` given to `sector`, unless it is refused or
 /// already belongs to another profile. `names` gives the shown name of a
-/// sector.
+/// sector; `types_with_altgr` tells whether a Ctrl+Alt shortcut types a
+/// character on the keyboard.
 pub fn give_shortcut(
     settings: &Settings,
     sector: u16,
     shortcut: Shortcut,
     names: impl Fn(u16) -> String,
+    types_with_altgr: impl Fn(Shortcut) -> bool,
 ) -> Result<Settings, ShortcutProblem> {
-    let shortcut = shortcut.check().map_err(ShortcutProblem::Refused)?;
+    let shortcut = shortcut
+        .check_typed(types_with_altgr)
+        .map_err(ShortcutProblem::Refused)?;
     if let Some((&other, _)) = settings
         .profiles
         .iter()
@@ -219,6 +224,16 @@ mod tests {
         })
     }
 
+    /// Gives a shortcut on a keyboard where Ctrl+Alt types nothing.
+    fn give(
+        settings: &Settings,
+        sector: u16,
+        shortcut: Shortcut,
+        names: impl Fn(u16) -> String,
+    ) -> Result<Settings, ShortcutProblem> {
+        give_shortcut(settings, sector, shortcut, names, |_| false)
+    }
+
     fn shortcut(text: &str) -> Shortcut {
         text.parse().expect("shortcut")
     }
@@ -229,7 +244,7 @@ mod tests {
 
     #[test]
     fn rows_list_enabled_profiles_with_their_settings() {
-        let settings = give_shortcut(&named(2, "Jeu"), 2, shortcut("Ctrl+Alt+F2"), |_| {
+        let settings = give(&named(2, "Jeu"), 2, shortcut("Ctrl+Alt+F2"), |_| {
             String::new()
         })
         .expect("given");
@@ -301,12 +316,12 @@ mod tests {
 
     #[test]
     fn a_shortcut_of_another_profile_is_refused_with_its_name() {
-        let settings = give_shortcut(&Settings::default(), 1, shortcut("Ctrl+Alt+F1"), |_| {
+        let settings = give(&Settings::default(), 1, shortcut("Ctrl+Alt+F1"), |_| {
             String::new()
         })
         .expect("given");
 
-        let result = give_shortcut(&settings, 2, shortcut("Ctrl+Alt+F1"), |sector| {
+        let result = give(&settings, 2, shortcut("Ctrl+Alt+F1"), |sector| {
             format!("Profil {sector}")
         });
 
@@ -316,10 +331,9 @@ mod tests {
     #[test]
     fn a_profile_can_take_its_own_shortcut_again_and_lose_it() {
         let names = |_| String::new();
-        let first =
-            give_shortcut(&Settings::default(), 1, shortcut("Ctrl+Alt+F1"), names).expect("given");
+        let first = give(&Settings::default(), 1, shortcut("Ctrl+Alt+F1"), names).expect("given");
 
-        let again = give_shortcut(&first, 1, shortcut("Ctrl+Alt+F1"), names);
+        let again = give(&first, 1, shortcut("Ctrl+Alt+F1"), names);
         let cleared = clear_shortcut(&first, 1);
 
         assert_eq!(again, Ok(first));
@@ -337,6 +351,19 @@ mod tests {
             messages,
             [None, Some(texts.save_blocked), Some(texts.save_failed)]
         );
+    }
+
+    #[test]
+    fn a_ctrl_alt_shortcut_that_types_a_character_is_refused() {
+        let result = give_shortcut(
+            &Settings::default(),
+            1,
+            shortcut("Ctrl+Alt+0"),
+            |_| String::new(),
+            |_| true,
+        );
+
+        assert_eq!(result, Err(ShortcutProblem::Refused(Refusal::AltGr)));
     }
 
     #[test]

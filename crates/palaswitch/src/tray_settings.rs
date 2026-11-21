@@ -101,9 +101,13 @@ impl App {
     /// Gives `shortcut` to `sector` if no profile and no other program has
     /// it; otherwise says why and keeps the previous one.
     fn give(&mut self, sector: u16, shortcut: Shortcut) {
-        let given = give_shortcut(&self.settings, sector, shortcut, |other| {
-            profile_name(&self.state, &self.settings, self.texts, other)
-        });
+        let given = give_shortcut(
+            &self.settings,
+            sector,
+            shortcut,
+            |other| profile_name(&self.state, &self.settings, self.texts, other),
+            crate::win::types_with_altgr,
+        );
         let message = match given {
             Err(problem) => {
                 self.register_shortcuts();

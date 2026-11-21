@@ -15,6 +15,10 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyboardLayout, MAPVK_VK_TO_VSC, MapVirtualKeyExW, ToUnicodeEx, VK_CONTROL, VK_LCONTROL,
+    VK_LSHIFT, VK_MENU, VK_RMENU, VK_SHIFT,
+};
 use windows::Win32::UI::Shell::{
     NIF_INFO, NIIF_WARNING, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
@@ -31,6 +35,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCWSTR, w};
 
 use crate::settings_window::SettingsEvent;
+use crate::shortcut::Shortcut;
 
 const CLASS_NAME: PCWSTR = w!("palaswitch.hidden");
 const INSTANCE_MUTEX: PCWSTR = w!("Local\\palaswitch.instance");
@@ -395,6 +400,38 @@ pub fn light_taskbar() -> bool {
         )
     };
     status.is_ok() && value != 0
+}
+
+/// Whether Ctrl+Alt (AltGr) with the key of `shortcut` types a character
+/// on the keyboard layout in use, a dead key included.
+pub fn types_with_altgr(shortcut: Shortcut) -> bool {
+    const DOWN: u8 = 0x80;
+    // Leaves the keyboard state alone, dead keys included.
+    const NO_STATE_CHANGE: u32 = 0x4;
+    let mut state = [0u8; 256];
+    for vk in [VK_CONTROL, VK_LCONTROL, VK_MENU, VK_RMENU] {
+        state[usize::from(vk.0)] = DOWN;
+    }
+    if shortcut.mods.shift {
+        for vk in [VK_SHIFT, VK_LSHIFT] {
+            state[usize::from(vk.0)] = DOWN;
+        }
+    }
+    let vk = u32::from(shortcut.key.vk());
+    let mut typed = [0u16; 8];
+    // SAFETY: reads the layout of this thread and translates one key into
+    // local buffers, without changing the keyboard state.
+    let length = unsafe {
+        let layout = GetKeyboardLayout(0);
+        let scan = MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, Some(layout));
+        ToUnicodeEx(vk, scan, &state, &mut typed, NO_STATE_CHANGE, Some(layout))
+    };
+    match length {
+        // A dead key, such as ~ on a French keyboard.
+        ..0 => true,
+        0 => false,
+        _ => !char::from_u32(u32::from(typed[0])).is_some_and(char::is_control),
+    }
 }
 
 /// Side of a tray icon in pixels, at the system scale.
