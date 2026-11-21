@@ -77,8 +77,14 @@ fn append(path: &Path) -> io::Result<File> {
 
 impl Write for RotatingFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if self.len > 0 && self.len + buf.len() as u64 > self.max_len {
-            self.rotate()?;
+        if self.len > 0 && self.len + buf.len() as u64 > self.max_len && self.rotate().is_err() {
+            // Another program holds a log file open: start this one over
+            // rather than grow past the limit or stop logging.
+            self.file = OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(&self.path)?;
+            self.len = 0;
         }
         let written = self.file.write(buf)?;
         self.len += written as u64;
@@ -167,6 +173,34 @@ mod tests {
 
         let previous = fs::read_to_string(dir.0.join(PREVIOUS_FILE_NAME)).unwrap();
         assert_eq!(previous, "line 0000\nline 0001\nline 0002\n");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn starts_over_when_another_program_blocks_the_rotation() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        const FILE_SHARE_READ_WRITE: u32 = 0x1 | 0x2;
+        let dir = TempDir::new("blocked");
+        let mut file = RotatingFile::open(&dir.0, 30).unwrap();
+        for n in 0..3 {
+            file.write_all(&line(n)).unwrap();
+        }
+        // Without FILE_SHARE_DELETE, the log file cannot be renamed.
+        let _blocker = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ_WRITE)
+            .open(dir.0.join(FILE_NAME))
+            .unwrap();
+
+        file.write_all(&line(3)).unwrap();
+
+        let current = fs::read_to_string(dir.0.join(FILE_NAME)).unwrap();
+        assert_eq!(
+            current,
+            "line 0003
+"
+        );
     }
 
     #[test]
