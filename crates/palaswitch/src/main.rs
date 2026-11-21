@@ -1,11 +1,20 @@
 #![windows_subsystem = "windows"]
 
+mod autostart;
+mod capture;
+mod config;
 mod gdi;
 mod hardware;
+mod hotkeys;
 mod icon;
 mod logs;
 mod model;
+mod settings_view;
+mod settings_window;
+mod shortcut;
+mod shortcut_field;
 mod text;
+mod theme;
 mod tray;
 mod win;
 mod worker;
@@ -16,11 +25,12 @@ use std::process::ExitCode;
 use std::rc::Rc;
 use std::sync::mpsc;
 
+use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
 use tray_icon::menu::MenuEvent;
 use tray_icon::{MouseButtonState, TrayIconEvent};
 
 use text::{Language, texts};
-use tray::{App, UiEvent};
+use tray::{App, Startup, UiEvent};
 use win::HiddenWindow;
 use worker::Worker;
 
@@ -54,13 +64,24 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let texts = texts(Language::from_windows_lang_id(win::ui_language_id()));
+    let language = std::env::var("PALASWITCH_LANG")
+        .ok()
+        .and_then(|name| Language::from_name(&name))
+        .unwrap_or_else(|| Language::from_windows_lang_id(win::ui_language_id()));
+    let texts = texts(language);
+    let (settings, reset) = match config::default_path() {
+        Some(path) => config::load(&path),
+        None => (config::Settings::default(), None),
+    };
 
     let app: Rc<RefCell<Option<App>>> = Rc::new(RefCell::new(None));
     let window = {
         let app = app.clone();
         HiddenWindow::create(move |event| {
-            if let Some(app) = app.borrow_mut().as_mut() {
+            // Busy only while the app is dropped at the end: nothing left to do.
+            if let Ok(mut app) = app.try_borrow_mut()
+                && let Some(app) = app.as_mut()
+            {
                 app.handle(event);
             }
         })?
@@ -69,6 +90,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let (ui_sender, ui_events) = mpsc::channel();
     let menu_sender = ui_sender.clone();
+    let hotkey_sender = ui_sender.clone();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let _ = menu_sender.send(UiEvent::Menu(event.id));
         doorbell.ring();
@@ -90,18 +112,33 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }));
 
+    GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
+        if event.state == HotKeyState::Pressed {
+            let _ = hotkey_sender.send(UiEvent::Hotkey(event.id));
+            doorbell.ring();
+        }
+    }));
+
     let (update_sender, updates) = mpsc::channel();
     let worker = Worker::spawn(move |update| {
         let _ = update_sender.send(update);
         doorbell.ring();
     })?;
 
-    *app.borrow_mut() = Some(App::new(texts, worker, updates, ui_events)?);
+    let startup = Startup {
+        texts,
+        settings,
+        reset,
+    };
+    *app.borrow_mut() = Some(App::new(startup, worker, updates, ui_events)?);
     win::run_message_loop();
 
     // Dropping the app removes the icon at once instead of leaving it until
-    // the pointer passes over it.
-    app.borrow_mut().take();
+    // the pointer passes over it. It is taken out of the cell first: while
+    // it drops, its settings window may still report to the handler, which
+    // must find the cell free.
+    let quitting = app.borrow_mut().take();
+    drop(quitting);
     drop(window);
     Ok(())
 }

@@ -12,9 +12,12 @@ repository = "https://github.com/Palawizard/palaswitch"
 [workspace.dependencies]
 ctrlc = "3.5.3"
 embed-manifest = "1.5.1"
+global-hotkey = "0.10.0"
 hidapi = "2.6.7"
 palaswitch-device = { path = "crates/palaswitch-device" }
 palaswitch-hidpp = { path = "crates/palaswitch-hidpp" }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.2.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
 # Pinned: the app addresses its tray icon by the uID this version gives it (ADR-002).

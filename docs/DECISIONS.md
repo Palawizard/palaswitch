@@ -55,3 +55,20 @@ Failure notifications (`Shell_NotifyIconW` with `NIF_INFO`) must name the existi
 - A receiver with two paired devices that both have onboard profiles only shows the first one.
 - Updating `tray-icon` means checking the `uID` again.
 - Without a GUID, Windows remembers whether the icon is pinned to the taskbar by executable path; the installer keeps the path stable across updates.
+
+## ADR-003: global-hotkey kept with its release thread
+
+- Date: 2026-11-21. Status: accepted.
+
+### Context
+
+ADR-001 chose `global-hotkey` for the shortcuts. On each press, version 0.10.0 starts a thread that reads `GetAsyncKeyState` every 50 ms until the key is released, to send a release event. The app only uses presses, and its rule is to never poll.
+
+### Decision
+
+Keep `global-hotkey`. The thread lives only while a shortcut is held (a fraction of a second per press), the app does nothing with the release events, and nothing runs at rest.
+
+### Consequences
+
+- No timer and no CPU use at rest, measured with the window closed.
+- If this ever matters, registering the shortcuts with `RegisterHotKey` on the app's own hidden window would remove both the thread and the dependency.
