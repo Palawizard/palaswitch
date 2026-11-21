@@ -226,10 +226,14 @@ impl<H: Hardware> MouseThread<H> {
     }
 
     /// Drops the interfaces that went away and opens the new ones; the ones
-    /// still there keep their transport. When the mouse in use changes to
-    /// one already open, its profiles are read again.
+    /// still there keep their transport.
     fn rediscover(&mut self) {
-        let before = self.active_path();
+        self.rediscover_after(self.active_path());
+    }
+
+    /// [`Self::rediscover`], then reads the profiles again when the mouse in
+    /// use is no longer the one at `before` and was already open.
+    fn rediscover_after(&mut self, before: Option<CString>) {
         let present = match self.hardware.interfaces() {
             Ok(present) => present,
             Err(error) => {
@@ -450,9 +454,10 @@ impl<H: Hardware> MouseThread<H> {
     fn handle_error(&mut self, index: usize, error: &Error) -> Kept {
         match error {
             Error::Transport(_) => {
+                let before = self.active_path();
                 let link = self.links.remove(index);
                 tracing::info!(%error, product_id = link.product_id, "lost the HID++ interface");
-                self.rediscover();
+                self.rediscover_after(before);
                 Kept::Removed
             }
             _ if Failure::of(error) == Failure::Asleep => {

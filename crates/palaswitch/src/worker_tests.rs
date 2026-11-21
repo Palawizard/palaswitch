@@ -76,6 +76,8 @@ fn receiver_mouse_asleep() -> Vec<Exchange> {
 struct Line {
     script: VecDeque<Exchange>,
     inbox: VecDeque<Vec<u8>>,
+    /// Reads and writes fail, as on a device being unplugged.
+    broken: bool,
 }
 
 /// Replays captures. A write past the end of its script gets no answer,
@@ -85,6 +87,9 @@ struct Replay(Rc<RefCell<Line>>);
 impl Transport for Replay {
     fn write(&mut self, report: &[u8; LONG_REPORT_LEN]) -> Result<(), TransportError> {
         let mut line = self.0.borrow_mut();
+        if line.broken {
+            return Err(TransportError("unplugged".to_owned()));
+        }
         if let Some((expected, replies)) = line.script.pop_front() {
             assert_eq!(report.as_slice(), expected.as_slice());
             line.inbox.extend(replies);
@@ -93,7 +98,11 @@ impl Transport for Replay {
     }
 
     fn read(&mut self, _timeout: Duration) -> Result<Option<Vec<u8>>, TransportError> {
-        Ok(self.0.borrow_mut().inbox.pop_front())
+        let mut line = self.0.borrow_mut();
+        if line.broken {
+            return Err(TransportError("unplugged".to_owned()));
+        }
+        Ok(line.inbox.pop_front())
     }
 }
 
@@ -126,6 +135,10 @@ impl FakeHardware {
             .borrow_mut()
             .inbox
             .push_back(report);
+    }
+
+    fn break_line(&self, path: &'static str) {
+        self.lines.borrow()[path].borrow_mut().broken = true;
     }
 
     fn unanswered(&self, path: &'static str) -> usize {
@@ -275,6 +288,25 @@ fn cable_is_preferred_and_receiver_read_again_once_unplugged() {
     thread.handle(Command::DevicesChanged);
 
     assert_eq!(both, Some((Connection::Wired, None, true)));
+    assert_eq!(
+        summary(&thread.state()),
+        Some((Connection::Receiver(1), Some(1), false))
+    );
+    assert_eq!(hardware.unanswered(RECEIVER_PATH), 0);
+}
+
+#[test]
+fn receiver_is_read_again_when_the_cable_fails_before_windows_says_it_is_gone() {
+    let hardware = FakeHardware::default();
+    hardware.plug(RECEIVER_PATH, receiver_finds_mouse());
+    hardware.plug(WIRED_PATH, exchanges(WIRED)[..6].to_vec());
+    let (mut thread, _) = thread(&hardware);
+    thread.rediscover();
+    hardware.script(RECEIVER_PATH, receiver_reads_profiles());
+    hardware.break_line(WIRED_PATH);
+
+    thread.handle(Command::Reports);
+
     assert_eq!(
         summary(&thread.state()),
         Some((Connection::Receiver(1), Some(1), false))
