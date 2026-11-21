@@ -82,6 +82,8 @@ impl RunKey {
     /// the startup apps, which would otherwise keep the app from starting.
     pub fn set(self, exe: &Path, enabled: bool) -> windows::core::Result<()> {
         if enabled {
+            // Run first: if it cannot be written, the user's switch-off is
+            // kept rather than lost for nothing.
             self.write_command(exe)?;
             delete_value(self.approved_subkey, self.value)
         } else {
@@ -244,8 +246,12 @@ mod tests {
             .unwrap();
 
         key.0.restore(exe).unwrap();
+        let moved = key.0.is_enabled(exe);
+        key.0.set(exe, false).unwrap();
+        key.0.restore(exe).unwrap();
 
-        assert!(key.0.is_enabled(exe));
+        assert!(moved);
+        assert!(key.0.is_enabled(exe), "a missing value is not written back");
     }
 
     #[test]

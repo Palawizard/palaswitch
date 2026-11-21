@@ -426,8 +426,7 @@ pub fn types_with_altgr(shortcut: Shortcut) -> bool {
     let vk = u32::from(shortcut.key.vk());
     let mut typed = [0u16; 8];
     // SAFETY: reads the layout of this thread and translates one key into
-    // local buffers; NO_STATE_CHANGE (Windows 10 1607 and later) keeps a
-    // dead key from staying pending.
+    // local buffers (NO_STATE_CHANGE needs Windows 10 1607 or later).
     let length = unsafe {
         let layout = GetKeyboardLayout(0);
         let scan = MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, Some(layout));
