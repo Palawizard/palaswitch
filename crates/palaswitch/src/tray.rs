@@ -77,6 +77,7 @@ impl App {
         let settings_item = MenuItem::new(texts.settings_menu, true, None);
         let quit = MenuItem::new(texts.quit, true, None);
         let menu = Menu::new();
+        menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&settings_item)?;
         menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&quit)?;
@@ -130,6 +131,7 @@ impl App {
         }
         app.register_shortcuts();
         app.tell_taken_shortcuts();
+        app.keep_start_with_windows();
         Ok(app)
     }
 

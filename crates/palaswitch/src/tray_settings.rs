@@ -65,6 +65,7 @@ impl App {
                     self.settings = renamed;
                     self.save();
                     self.show_state();
+                    self.refresh_settings_window();
                 }
             }
             SettingsEvent::Field(FieldEvent::Listening) => {
@@ -136,6 +137,22 @@ impl App {
         };
         self.set_message(message.as_deref());
         self.refresh_settings_window();
+    }
+
+    /// When the settings say to start with Windows, makes the Run key point
+    /// to this executable, which may have moved since the box was ticked.
+    pub(super) fn keep_start_with_windows(&self) {
+        if !self.settings.start_with_windows {
+            return;
+        }
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        if !RUN_KEY.is_enabled(&exe)
+            && let Err(error) = RUN_KEY.set(&exe, true)
+        {
+            tracing::warn!(%error, "could not restore start with Windows");
+        }
     }
 
     fn start_with_windows(&mut self, enabled: bool) {
