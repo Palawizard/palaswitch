@@ -11,9 +11,13 @@ use crate::gdi::SystemFont;
 use crate::hotkeys::{Conflict, Hotkeys};
 use crate::icon::picture;
 use crate::model::{Failure, IconKind, MenuModel, MouseState, tooltip};
+use crate::settings_window::SettingsWindow;
 use crate::text::Texts;
 use crate::win;
 use crate::worker::{Command, Update, Worker};
+
+#[path = "tray_settings.rs"]
+mod settings;
 
 /// What the menu and the icon report, sent to the interface thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +38,7 @@ pub struct App {
     menu: Menu,
     status: MenuItem,
     status_shown: bool,
+    settings_item: MenuItem,
     quit: MenuItem,
     profiles: Vec<(u16, CheckMenuItem)>,
     state: MouseState,
@@ -42,6 +47,7 @@ pub struct App {
     settings: Settings,
     hotkeys: Option<Hotkeys>,
     conflicts: BTreeMap<u16, Conflict>,
+    window: Option<SettingsWindow>,
 }
 
 /// What the app starts with besides the mouse.
@@ -65,8 +71,10 @@ impl App {
             reset,
         } = startup;
         let status = MenuItem::new("", false, None);
+        let settings_item = MenuItem::new(texts.settings_menu, true, None);
         let quit = MenuItem::new(texts.quit, true, None);
         let menu = Menu::new();
+        menu.append(&settings_item)?;
         menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&quit)?;
         let state = MouseState::Searching;
@@ -90,6 +98,7 @@ impl App {
             menu,
             status,
             status_shown: false,
+            settings_item,
             quit,
             profiles: Vec::new(),
             state,
@@ -100,6 +109,7 @@ impl App {
                 .inspect_err(|error| tracing::error!(%error, "cannot register shortcuts"))
                 .ok(),
             conflicts: BTreeMap::new(),
+            window: None,
         };
         app.show_state();
         if reset.is_some() {
@@ -109,25 +119,32 @@ impl App {
                 texts.settings_reset_message,
             );
         }
-        app.apply_shortcuts();
+        app.register_shortcuts();
+        app.tell_taken_shortcuts();
         Ok(app)
     }
 
-    /// Registers the shortcuts of the settings and says which ones another
-    /// program already holds.
-    fn apply_shortcuts(&mut self) {
-        let Some(hotkeys) = self.hotkeys.as_mut() else {
-            return;
-        };
-        self.conflicts = hotkeys.apply(&self.settings);
-        let taken: Vec<String> = self
-            .conflicts
+    /// Registers the shortcuts of the settings.
+    fn register_shortcuts(&mut self) {
+        if let Some(hotkeys) = self.hotkeys.as_mut() {
+            self.conflicts = hotkeys.apply(&self.settings);
+        }
+    }
+
+    /// Shortcuts of the settings that another program already holds.
+    fn taken_shortcuts(&self) -> Vec<String> {
+        self.conflicts
             .keys()
             .filter_map(|sector| {
                 let shortcut = self.settings.profiles.get(sector)?.shortcut?;
                 Some(shortcut.shown(self.texts))
             })
-            .collect();
+            .collect()
+    }
+
+    /// Says which shortcuts another program already holds.
+    fn tell_taken_shortcuts(&self) {
+        let taken = self.taken_shortcuts();
         if !taken.is_empty() {
             win::notify(
                 self.tray.window_handle(),
@@ -156,10 +173,13 @@ impl App {
             win::WindowEvent::ThemeChanged => {
                 self.light_taskbar = win::light_taskbar();
                 self.show_state();
+                self.restyle_settings_window();
             }
             win::WindowEvent::AnotherInstance => {
                 tracing::info!("launched again while running");
+                self.open_settings();
             }
+            win::WindowEvent::Settings(event) => self.on_settings(event),
         }
     }
 
@@ -168,6 +188,7 @@ impl App {
             Update::State(state) => {
                 self.state = state;
                 self.show_state();
+                self.refresh_settings_window();
             }
             Update::SwitchFailed(failure) => win::notify(
                 self.tray.window_handle(),
@@ -192,6 +213,7 @@ impl App {
                 }
             }
             UiEvent::Menu(id) if id == *self.quit.id() => win::quit(),
+            UiEvent::Menu(id) if id == *self.settings_item.id() => self.open_settings(),
             UiEvent::Menu(id) => {
                 let sector = self
                     .profiles

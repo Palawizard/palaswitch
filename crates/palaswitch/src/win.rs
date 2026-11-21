@@ -2,7 +2,7 @@
 //! theme changes and wake-ups from other threads, the single-instance lock,
 //! failure notifications and a few system settings.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::ffi::c_void;
 
@@ -19,14 +19,17 @@ use windows::Win32::UI::Shell::{
     NIF_INFO, NIIF_WARNING, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE, DBT_DEVTYP_DEVICEINTERFACE,
-    DEV_BROADCAST_DEVICEINTERFACE_W, DEVICE_NOTIFY_WINDOW_HANDLE, DefWindowProcW, DestroyWindow,
-    DispatchMessageW, FindWindowW, GetMessageW, HDEVNOTIFY, MSG, PBT_APMRESUMEAUTOMATIC,
+    AllowSetForegroundWindow, CreateWindowExW, DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE,
+    DBT_DEVTYP_DEVICEINTERFACE, DEV_BROADCAST_DEVICEINTERFACE_W, DEVICE_NOTIFY_WINDOW_HANDLE,
+    DefWindowProcW, DestroyWindow, DispatchMessageW, FindWindowW, GetMessageW,
+    GetWindowThreadProcessId, HDEVNOTIFY, IsDialogMessageW, MSG, PBT_APMRESUMEAUTOMATIC,
     PostMessageW, PostQuitMessage, RegisterClassW, RegisterDeviceNotificationW, SM_CXSMICON,
     TranslateMessage, UnregisterDeviceNotification, WM_APP, WM_CLOSE, WM_DEVICECHANGE,
     WM_POWERBROADCAST, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
+
+use crate::settings_window::SettingsEvent;
 
 const CLASS_NAME: PCWSTR = w!("palaswitch.hidden");
 const INSTANCE_MUTEX: PCWSTR = w!("Local\\palaswitch.instance");
@@ -40,8 +43,8 @@ const WM_APP_ANOTHER_INSTANCE: u32 = WM_APP + 4;
 /// the `uID`. [`check_tray_icon`] says at start-up if this ever changes.
 const TRAY_ICON_ID: u32 = 2;
 
-/// What the hidden window tells the interface thread.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the hidden window and the settings window tell the interface thread.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowEvent {
     /// Another thread has something waiting for the interface thread.
     Wake,
@@ -50,6 +53,7 @@ pub enum WindowEvent {
     ThemeChanged,
     /// The app was launched again while running.
     AnotherInstance,
+    Settings(SettingsEvent),
 }
 
 type Handler = Box<dyn FnMut(WindowEvent)>;
@@ -59,6 +63,13 @@ thread_local! {
     /// Events that arrived while the handler was running, handled once it
     /// returns.
     static PENDING: RefCell<VecDeque<WindowEvent>> = const { RefCell::new(VecDeque::new()) };
+    /// The settings window, whose controls the message loop moves between
+    /// with Tab, as in a dialog.
+    static DIALOG: Cell<isize> = const { Cell::new(0) };
+}
+
+pub fn set_dialog(hwnd: Option<HWND>) {
+    DIALOG.with(|cell| cell.set(hwnd.map_or(0, |hwnd| hwnd.0 as isize)));
 }
 
 /// Top-level window that is never shown: unlike a message-only window, it
@@ -218,7 +229,7 @@ extern "system" fn window_proc(
 /// Runs the handler for `event`. A message loop inside the handler (a menu)
 /// can dispatch another event meanwhile: it is queued and handled right
 /// after.
-fn dispatch(event: WindowEvent) {
+pub fn dispatch(event: WindowEvent) {
     PENDING.with(|pending| pending.borrow_mut().push_back(event));
     HANDLER.with(|cell| {
         let Ok(mut handler) = cell.try_borrow_mut() else {
@@ -260,12 +271,23 @@ pub fn run_message_loop() {
     // SAFETY: `message` lives for the whole loop; GetMessageW returns 0 on
     // WM_QUIT and -1 on error, both of which end the loop.
     while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
+        let dialog = DIALOG.with(Cell::get);
+        if dialog != 0 && is_dialog_message(dialog, &message) {
+            continue;
+        }
         // SAFETY: `message` was just filled by GetMessageW.
         unsafe {
             let _ = TranslateMessage(&message);
             DispatchMessageW(&message);
         }
     }
+}
+
+/// Lets the settings window move the focus with Tab, as a dialog does.
+fn is_dialog_message(dialog: isize, message: &MSG) -> bool {
+    // SAFETY: `dialog` is our settings window while it exists (set_dialog
+    // clears it when the window goes); `message` was filled by GetMessageW.
+    unsafe { IsDialogMessageW(HWND(dialog as *mut c_void), message) }.as_bool()
 }
 
 /// Held while this process is the running instance.
@@ -294,6 +316,14 @@ pub fn lock_single_instance() -> windows::core::Result<Option<InstanceLock>> {
     // told, which only matters for the settings window it would open.
     // SAFETY: looks up a window by class name only.
     if let Ok(running) = unsafe { FindWindowW(CLASS_NAME, PCWSTR::null()) } {
+        let mut process = 0;
+        // SAFETY: reads the process of a window and lets that process bring
+        // its settings window to the front, which Windows refuses otherwise
+        // to a program the user did not just click.
+        unsafe {
+            GetWindowThreadProcessId(running, Some(&mut process));
+            let _ = AllowSetForegroundWindow(process);
+        }
         post(running, WM_APP_ANOTHER_INSTANCE);
     }
     Ok(None)

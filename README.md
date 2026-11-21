@@ -43,6 +43,8 @@ pwsh scripts/verify.ps1
 
 The CI runs the same script.
 
+To see the interface in the other language without changing the one of Windows, start the app with `PALASWITCH_LANG` set to `fr` or `en`.
+
 The workspace has four crates:
 
 - `palaswitch-hidpp`: the HID++ protocol, with no dependency on Windows or on a HID library, tested against frames captured from a real mouse.

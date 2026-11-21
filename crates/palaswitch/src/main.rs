@@ -10,8 +10,11 @@ mod icon;
 mod logs;
 mod model;
 mod settings_view;
+mod settings_window;
 mod shortcut;
+mod shortcut_field;
 mod text;
+mod theme;
 mod tray;
 mod win;
 mod worker;
@@ -61,7 +64,11 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let texts = texts(Language::from_windows_lang_id(win::ui_language_id()));
+    let language = std::env::var("PALASWITCH_LANG")
+        .ok()
+        .and_then(|name| Language::from_name(&name))
+        .unwrap_or_else(|| Language::from_windows_lang_id(win::ui_language_id()));
+    let texts = texts(language);
     let (settings, reset) = match config::default_path() {
         Some(path) => config::load(&path),
         None => (config::Settings::default(), None),

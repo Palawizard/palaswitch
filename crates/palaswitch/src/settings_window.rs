@@ -1,0 +1,721 @@
+//! The settings window: created when opened, destroyed when closed.
+
+use std::cell::Cell;
+
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{
+    FillRect, GetMonitorInfoW, HBRUSH, HDC, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    MonitorFromPoint, SetBkColor, SetTextColor,
+};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::{
+    EM_LIMITTEXT, EM_SETCUEBANNER, NM_CUSTOMDRAW, NMCUSTOMDRAW, NMHDR,
+};
+use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
+use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFocus};
+use windows::Win32::UI::WindowsAndMessaging::{
+    BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_PUSHBUTTON, CreateWindowExW,
+    DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, GetCursorPos, GetWindowTextW, HMENU, IDCANCEL,
+    IsWindow, RegisterClassW, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW,
+    SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY,
+    WM_DPICHANGED, WM_ERASEBKGND, WM_NOTIFY, WM_SETFONT, WNDCLASSW, WS_CAPTION, WS_CHILD,
+    WS_EX_CLIENTEDGE, WS_EX_CONTROLPARENT, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
+    WS_VISIBLE,
+};
+use windows::core::{HSTRING, PCWSTR, w};
+
+use crate::settings_view::{Row, View};
+use crate::shortcut_field::{self, FieldEvent};
+use crate::text::Texts;
+use crate::theme::{self, Brushes, ControlKind, Fonts, Palette};
+use crate::win::{self, WindowEvent};
+
+const CLASS_NAME: PCWSTR = w!("palaswitch.settings");
+const EN_CHANGE: u32 = 0x0300;
+
+// Control ids: a kind in the high bits, the profile sector in the low ones.
+const ID_NAME: u16 = 0x1000;
+const ID_FIELD: u16 = 0x2000;
+const ID_CLEAR: u16 = 0x3000;
+const ID_DETAIL: u16 = 0x4001;
+const ID_MESSAGE: u16 = 0x4002;
+const ID_START: u16 = 0x4003;
+const KIND_MASK: u16 = 0xF000;
+
+// Layout in device-independent pixels.
+const MARGIN: i32 = 20;
+const CONTENT_WIDTH: i32 = 440;
+const NAME_WIDTH: i32 = 196;
+const FIELD_WIDTH: i32 = 160;
+const GAP: i32 = 8;
+const CONTROL_HEIGHT: i32 = 28;
+/// A single-line edit draws its text at the top: it gets the height of its
+/// text plus a little, centred on the row.
+const EDIT_HEIGHT: i32 = 24;
+const ROW_STEP: i32 = CONTROL_HEIGHT + GAP;
+const LINE_HEIGHT: i32 = 20;
+const TITLE_HEIGHT: i32 = 28;
+
+/// What the window tells the app.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingsEvent {
+    Rename { sector: u16, text: String },
+    Field(FieldEvent),
+    Clear(u16),
+    StartWithWindows(bool),
+    DpiChanged(u32),
+    Closed,
+}
+
+fn report(event: SettingsEvent) {
+    win::dispatch(WindowEvent::Settings(event));
+}
+
+fn report_field(event: FieldEvent) {
+    report(SettingsEvent::Field(event));
+}
+
+/// What the window procedure needs while painting.
+#[derive(Clone, Copy)]
+struct Paint {
+    palette: Palette,
+    background: isize,
+    field: isize,
+}
+
+thread_local! {
+    static PAINT: Cell<Option<Paint>> = const { Cell::new(None) };
+    static TEXTS: Cell<Option<&'static Texts>> = const { Cell::new(None) };
+    /// Set while the app writes into the controls, so that the change
+    /// notifications they send are not taken for the user's.
+    static UPDATING: Cell<bool> = const { Cell::new(false) };
+}
+
+struct RowControls {
+    sector: u16,
+    name: HWND,
+    field: HWND,
+    clear: HWND,
+}
+
+pub struct SettingsWindow {
+    hwnd: HWND,
+    texts: &'static Texts,
+    title: HWND,
+    detail: HWND,
+    name_header: HWND,
+    shortcut_header: HWND,
+    rows: Vec<RowControls>,
+    message: HWND,
+    start: HWND,
+    dpi: u32,
+    palette: Palette,
+    fonts: Fonts,
+    brushes: Brushes,
+}
+
+impl SettingsWindow {
+    pub fn open(
+        texts: &'static Texts,
+        view: &View,
+        start_with_windows: bool,
+    ) -> windows::core::Result<Self> {
+        TEXTS.with(|cell| cell.set(Some(texts)));
+        // SAFETY: null asks for the module of the running executable.
+        let instance = unsafe { GetModuleHandleW(None) }?;
+        let class = WNDCLASSW {
+            lpfnWndProc: Some(window_proc),
+            hInstance: instance.into(),
+            lpszClassName: CLASS_NAME,
+            ..Default::default()
+        };
+        // SAFETY: registers our class once; later calls fail harmlessly
+        // because it already exists.
+        unsafe { RegisterClassW(&class) };
+        // SAFETY: the class is registered; the window is shown once laid out.
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WS_EX_CONTROLPARENT,
+                CLASS_NAME,
+                &HSTRING::from(texts.settings_title),
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+                0,
+                0,
+                0,
+                0,
+                None,
+                None,
+                Some(instance.into()),
+                None,
+            )
+        }?;
+        // SAFETY: `hwnd` was just created.
+        let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+        let palette = Palette::current();
+        let child = |class: PCWSTR, text: &str, style: WINDOW_STYLE, id: u16| {
+            create_child(hwnd, class, text, style, id)
+        };
+        let title = child(w!("STATIC"), "", WINDOW_STYLE(0), 0);
+        let detail = child(w!("STATIC"), "", WINDOW_STYLE(0), ID_DETAIL);
+        let name_header = child(w!("STATIC"), texts.settings_name_header, WINDOW_STYLE(0), 0);
+        let shortcut_header = child(
+            w!("STATIC"),
+            texts.settings_shortcut_header,
+            WINDOW_STYLE(0),
+            0,
+        );
+        let message = child(w!("STATIC"), "", WINDOW_STYLE(0), ID_MESSAGE);
+        let start = child(
+            w!("BUTTON"),
+            texts.start_with_windows,
+            WINDOW_STYLE(BS_AUTOCHECKBOX as u32) | WS_TABSTOP,
+            ID_START,
+        );
+        let mut window = Self {
+            hwnd,
+            texts,
+            title,
+            detail,
+            name_header,
+            shortcut_header,
+            rows: Vec::new(),
+            message,
+            start,
+            dpi,
+            palette,
+            fonts: Fonts::new(dpi),
+            brushes: Brushes::new(&palette),
+        };
+        window.set_start_with_windows(start_with_windows);
+        window.restyle();
+        window.show(view);
+        window.place_on_cursor_monitor();
+        // SAFETY: shows and focuses our own window.
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = SetForegroundWindow(hwnd);
+        }
+        window.focus_first();
+        win::set_dialog(Some(hwnd));
+        Ok(window)
+    }
+
+    /// Brings the open window to the front.
+    pub fn raise(&self) {
+        // SAFETY: our own window.
+        unsafe {
+            let _ = ShowWindow(self.hwnd, SW_SHOW);
+            let _ = SetForegroundWindow(self.hwnd);
+        }
+    }
+
+    /// Shows `view`; the rows are rebuilt only when the profiles change.
+    pub fn show(&mut self, view: &View) {
+        set_text(self.title, &view.title);
+        set_text(self.detail, &view.detail);
+        let same_rows = self.rows.len() == view.rows.len()
+            && self
+                .rows
+                .iter()
+                .zip(&view.rows)
+                .all(|(controls, row)| controls.sector == row.sector);
+        if !same_rows {
+            shortcut_field::stop_listening();
+            for controls in self.rows.drain(..) {
+                for control in [controls.name, controls.field, controls.clear] {
+                    // SAFETY: child controls of ours, not used after.
+                    let _ = unsafe { DestroyWindow(control) };
+                }
+            }
+            self.rows = view.rows.iter().map(|row| self.create_row(row)).collect();
+            self.apply_fonts_and_styles();
+        }
+        for (controls, row) in self.rows.iter().zip(&view.rows) {
+            self.show_row(controls, row);
+        }
+        let has_rows = !view.rows.is_empty();
+        for header in [self.name_header, self.shortcut_header] {
+            set_visible(header, has_rows);
+        }
+        self.layout();
+    }
+
+    fn create_row(&self, row: &Row) -> RowControls {
+        let name = create_child(
+            self.hwnd,
+            w!("EDIT"),
+            &row.name,
+            WINDOW_STYLE(ES_AUTOHSCROLL as u32) | WS_TABSTOP,
+            ID_NAME | row.sector,
+        );
+        let cue = HSTRING::from(row.default_name.as_str());
+        // SAFETY: `name` is our edit; the cue text outlives the call and the
+        // limit is a plain number.
+        unsafe {
+            SendMessageW(
+                name,
+                EM_SETCUEBANNER,
+                Some(WPARAM(1)),
+                Some(LPARAM(cue.as_ptr() as isize)),
+            );
+            SendMessageW(
+                name,
+                EM_LIMITTEXT,
+                Some(WPARAM(crate::config::MAX_NAME_LEN)),
+                None,
+            );
+        }
+        let field = create_child(
+            self.hwnd,
+            w!("BUTTON"),
+            "",
+            WINDOW_STYLE(BS_PUSHBUTTON as u32) | WS_TABSTOP,
+            ID_FIELD | row.sector,
+        );
+        shortcut_field::attach(field, self.texts, report_field);
+        let clear = create_child(
+            self.hwnd,
+            w!("BUTTON"),
+            self.texts.shortcut_clear,
+            WINDOW_STYLE(BS_PUSHBUTTON as u32) | WS_TABSTOP,
+            ID_CLEAR | row.sector,
+        );
+        RowControls {
+            sector: row.sector,
+            name,
+            field,
+            clear,
+        }
+    }
+
+    fn show_row(&self, controls: &RowControls, row: &Row) {
+        // The name being typed is left alone.
+        // SAFETY: reads which control has the keyboard focus.
+        let typing = unsafe { GetFocus() } == controls.name;
+        if !typing && window_text(controls.name) != row.name {
+            set_text(controls.name, &row.name);
+        }
+        let shown = row.shortcut.map_or_else(
+            || self.texts.shortcut_none.to_owned(),
+            |shortcut| shortcut.shown(self.texts),
+        );
+        set_text(controls.field, &shown);
+        // SAFETY: enables or disables our own button.
+        let _ = unsafe { EnableWindow(controls.clear, row.shortcut.is_some()) };
+    }
+
+    /// Shows a line about the last refused shortcut, or nothing.
+    pub fn set_message(&self, message: Option<&str>) {
+        set_text(self.message, message.unwrap_or_default());
+    }
+
+    pub fn set_start_with_windows(&self, checked: bool) {
+        // SAFETY: sets the state of our own checkbox.
+        unsafe {
+            SendMessageW(
+                self.start,
+                BM_SETCHECK,
+                Some(WPARAM(usize::from(checked))),
+                None,
+            );
+        }
+    }
+
+    /// Follows a change of the window's DPI: new fonts, new positions.
+    pub fn rescale(&mut self, dpi: u32) {
+        self.dpi = dpi.max(96);
+        self.fonts = Fonts::new(self.dpi);
+        self.apply_fonts_and_styles();
+        self.layout();
+    }
+
+    /// Follows a change between light, dark and high contrast.
+    pub fn restyle(&mut self) {
+        self.palette = Palette::current();
+        self.brushes = Brushes::new(&self.palette);
+        PAINT.with(|cell| {
+            cell.set(Some(Paint {
+                palette: self.palette,
+                background: self.brushes.background.0 as isize,
+                field: self.brushes.field.0 as isize,
+            }));
+        });
+        theme::title_bar(self.hwnd, self.palette.dark);
+        self.apply_fonts_and_styles();
+        // SAFETY: repaints our own window and its children.
+        let _ = unsafe { InvalidateRect(Some(self.hwnd), None, true) };
+    }
+
+    fn controls(&self) -> Vec<(HWND, Option<ControlKind>)> {
+        let mut controls = vec![
+            (self.title, None),
+            (self.detail, None),
+            (self.name_header, None),
+            (self.shortcut_header, None),
+            (self.message, None),
+            (self.start, Some(ControlKind::Button)),
+        ];
+        for row in &self.rows {
+            controls.push((row.name, Some(ControlKind::Edit)));
+            controls.push((row.field, Some(ControlKind::Button)));
+            controls.push((row.clear, Some(ControlKind::Button)));
+        }
+        controls
+    }
+
+    fn apply_fonts_and_styles(&self) {
+        for (control, kind) in self.controls() {
+            let font = if control == self.title {
+                self.fonts.title
+            } else {
+                self.fonts.body
+            };
+            // SAFETY: sets a font that lives as long as the window's fonts.
+            unsafe {
+                SendMessageW(
+                    control,
+                    WM_SETFONT,
+                    Some(WPARAM(font.0 as usize)),
+                    Some(LPARAM(1)),
+                );
+            }
+            if let Some(kind) = kind {
+                theme::style_control(control, kind, self.palette.dark);
+            }
+        }
+    }
+
+    fn scale(&self, dip: i32) -> i32 {
+        dip * self.dpi as i32 / 96
+    }
+
+    fn layout(&self) {
+        let place = |control: HWND, x: i32, y: i32, width: i32, height: i32| {
+            // SAFETY: moves a child control of ours.
+            let _ = unsafe {
+                SetWindowPos(
+                    control,
+                    None,
+                    self.scale(x),
+                    self.scale(y),
+                    self.scale(width),
+                    self.scale(height),
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+            };
+        };
+        let field_x = MARGIN + NAME_WIDTH + GAP;
+        let clear_x = field_x + FIELD_WIDTH + GAP;
+        let clear_width = MARGIN + CONTENT_WIDTH - clear_x;
+        let mut y = MARGIN;
+        place(self.title, MARGIN, y, CONTENT_WIDTH, TITLE_HEIGHT);
+        y += TITLE_HEIGHT;
+        place(self.detail, MARGIN, y, CONTENT_WIDTH, LINE_HEIGHT);
+        y += LINE_HEIGHT + 2 * GAP;
+        if !self.rows.is_empty() {
+            place(self.name_header, MARGIN, y, NAME_WIDTH, LINE_HEIGHT);
+            place(self.shortcut_header, field_x, y, FIELD_WIDTH, LINE_HEIGHT);
+            y += LINE_HEIGHT + GAP / 2;
+        }
+        for row in &self.rows {
+            place(
+                row.name,
+                MARGIN,
+                y + (CONTROL_HEIGHT - EDIT_HEIGHT) / 2,
+                NAME_WIDTH,
+                EDIT_HEIGHT,
+            );
+            place(row.field, field_x, y, FIELD_WIDTH, CONTROL_HEIGHT);
+            place(row.clear, clear_x, y, clear_width, CONTROL_HEIGHT);
+            y += ROW_STEP;
+        }
+        place(self.message, MARGIN, y, CONTENT_WIDTH, LINE_HEIGHT);
+        y += LINE_HEIGHT + GAP;
+        place(self.start, MARGIN, y, CONTENT_WIDTH, CONTROL_HEIGHT);
+        y += CONTROL_HEIGHT + MARGIN;
+        self.resize_client(MARGIN * 2 + CONTENT_WIDTH, y);
+    }
+
+    fn resize_client(&self, width: i32, height: i32) {
+        let mut rect = RECT {
+            left: 0,
+            top: 0,
+            right: self.scale(width),
+            bottom: self.scale(height),
+        };
+        // SAFETY: plain computation on `rect` for our window's styles.
+        let _ = unsafe {
+            AdjustWindowRectExForDpi(
+                &mut rect,
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+                false,
+                WS_EX_CONTROLPARENT,
+                self.dpi,
+            )
+        };
+        // SAFETY: resizes our own window, keeping its position.
+        let _ = unsafe {
+            SetWindowPos(
+                self.hwnd,
+                None,
+                0,
+                0,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE | windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE,
+            )
+        };
+    }
+
+    /// Centres the window on the work area of the monitor under the pointer,
+    /// where the tray menu was just used.
+    fn place_on_cursor_monitor(&self) {
+        let mut cursor = POINT::default();
+        // SAFETY: plain queries about the pointer, its monitor and our window.
+        unsafe {
+            let _ = GetCursorPos(&mut cursor);
+            let monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+            let mut info = MONITORINFO {
+                cbSize: size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+                return;
+            }
+            let mut window = RECT::default();
+            let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(self.hwnd, &mut window);
+            let (width, height) = (window.right - window.left, window.bottom - window.top);
+            let area = info.rcWork;
+            let x = area.left + (area.right - area.left - width) / 2;
+            let y = area.top + (area.bottom - area.top - height) / 2;
+            let _ = SetWindowPos(
+                self.hwnd,
+                None,
+                x,
+                y,
+                0,
+                0,
+                SWP_NOZORDER | SWP_NOACTIVATE | windows::Win32::UI::WindowsAndMessaging::SWP_NOSIZE,
+            );
+        }
+    }
+
+    fn focus_first(&self) {
+        let first = self.rows.first().map_or(self.start, |row| row.name);
+        // SAFETY: focuses a control of our foreground window.
+        let _ = unsafe { SetFocus(Some(first)) };
+    }
+}
+
+impl Drop for SettingsWindow {
+    fn drop(&mut self) {
+        win::set_dialog(None);
+        shortcut_field::stop_listening();
+        // SAFETY: destroys our window if the user did not already close it;
+        // its fonts and brushes are deleted after, with `self`.
+        unsafe {
+            if IsWindow(Some(self.hwnd)).as_bool() {
+                let _ = DestroyWindow(self.hwnd);
+            }
+        }
+        PAINT.with(|cell| cell.set(None));
+    }
+}
+
+fn create_child(parent: HWND, class: PCWSTR, text: &str, style: WINDOW_STYLE, id: u16) -> HWND {
+    let extra = if class == w!("EDIT") {
+        WS_EX_CLIENTEDGE
+    } else {
+        WINDOW_EX_STYLE(0)
+    };
+    // SAFETY: a standard control as child of our window; the id is passed
+    // in place of a menu, as child windows take it.
+    let created = unsafe {
+        CreateWindowExW(
+            extra,
+            class,
+            &HSTRING::from(text),
+            WS_CHILD | WS_VISIBLE | style,
+            0,
+            0,
+            0,
+            0,
+            Some(parent),
+            Some(HMENU(usize::from(id) as *mut _)),
+            None,
+            None,
+        )
+    };
+    created.unwrap_or_else(|error| {
+        tracing::error!(%error, "could not create a control");
+        HWND::default()
+    })
+}
+
+fn set_text(control: HWND, text: &str) {
+    UPDATING.with(|cell| cell.set(true));
+    // SAFETY: a control of ours; the text outlives the call.
+    let _ = unsafe { SetWindowTextW(control, &HSTRING::from(text)) };
+    UPDATING.with(|cell| cell.set(false));
+}
+
+fn set_visible(control: HWND, visible: bool) {
+    let show = if visible {
+        SW_SHOW
+    } else {
+        windows::Win32::UI::WindowsAndMessaging::SW_HIDE
+    };
+    // SAFETY: shows or hides a control of ours.
+    let _ = unsafe { ShowWindow(control, show) };
+}
+
+fn window_text(control: HWND) -> String {
+    let mut buffer = [0u16; 128];
+    // SAFETY: `buffer` is writable and its length is passed along.
+    let len = unsafe { GetWindowTextW(control, &mut buffer) };
+    String::from_utf16_lossy(&buffer[..len.max(0) as usize])
+}
+
+fn color_control(hdc: HDC, text: COLORREF, background: COLORREF, brush: isize) -> LRESULT {
+    // SAFETY: `hdc` is the device context the control is about to paint with.
+    unsafe {
+        SetTextColor(hdc, text);
+        SetBkColor(hdc, background);
+    }
+    LRESULT(brush)
+}
+
+extern "system" fn window_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    let paint = PAINT.with(Cell::get);
+    match (message, paint) {
+        (WM_ERASEBKGND, Some(paint)) => {
+            let mut rect = RECT::default();
+            // SAFETY: fills our client area on the device context given.
+            unsafe {
+                let _ = windows::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rect);
+                FillRect(
+                    HDC(wparam.0 as *mut _),
+                    &rect,
+                    HBRUSH(paint.background as *mut _),
+                );
+            }
+            return LRESULT(1);
+        }
+        (WM_CTLCOLORSTATIC | WM_CTLCOLORBTN, Some(paint)) => {
+            // SAFETY: lParam of these messages is the control's handle.
+            let id = unsafe {
+                windows::Win32::UI::WindowsAndMessaging::GetDlgCtrlID(HWND(lparam.0 as *mut _))
+            } as u16;
+            let palette = paint.palette;
+            let text = match id {
+                ID_DETAIL => palette.secondary,
+                ID_MESSAGE => palette.error,
+                _ => palette.text,
+            };
+            return color_control(
+                HDC(wparam.0 as *mut _),
+                text,
+                palette.background,
+                paint.background,
+            );
+        }
+        (WM_CTLCOLOREDIT, Some(paint)) => {
+            let palette = paint.palette;
+            return color_control(
+                HDC(wparam.0 as *mut _),
+                palette.text,
+                palette.field,
+                paint.field,
+            );
+        }
+        (WM_NOTIFY, Some(paint)) => {
+            // SAFETY: for WM_NOTIFY, lParam points to an NMHDR, and to an
+            // NMCUSTOMDRAW when the code is NM_CUSTOMDRAW.
+            let header = unsafe { &*(lparam.0 as *const NMHDR) };
+            if header.code == NM_CUSTOMDRAW && header.idFrom == usize::from(ID_START) {
+                // SAFETY: NM_CUSTOMDRAW comes with an NMCUSTOMDRAW, as said above.
+                let draw = unsafe { &*(lparam.0 as *const NMCUSTOMDRAW) };
+                return theme::draw_checkbox(
+                    draw,
+                    &paint.palette,
+                    HBRUSH(paint.background as *mut _),
+                );
+            }
+        }
+        _ => {}
+    }
+    match message {
+        WM_COMMAND => {
+            on_command(hwnd, wparam, lparam);
+            return LRESULT(0);
+        }
+        WM_DPICHANGED => {
+            // SAFETY: for WM_DPICHANGED, lParam points to the suggested rect.
+            let suggested = unsafe { &*(lparam.0 as *const RECT) };
+            // SAFETY: moves our own window where Windows suggests.
+            let _ = unsafe {
+                SetWindowPos(
+                    hwnd,
+                    None,
+                    suggested.left,
+                    suggested.top,
+                    suggested.right - suggested.left,
+                    suggested.bottom - suggested.top,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+            };
+            report(SettingsEvent::DpiChanged(u32::from(wparam.0 as u16)));
+            return LRESULT(0);
+        }
+        WM_CLOSE => {
+            // SAFETY: the user closes our window.
+            let _ = unsafe { DestroyWindow(hwnd) };
+            return LRESULT(0);
+        }
+        WM_DESTROY => {
+            report(SettingsEvent::Closed);
+            return LRESULT(0);
+        }
+        _ => {}
+    }
+    // SAFETY: default handling for every other message.
+    unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+}
+
+fn on_command(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) {
+    let id = wparam.0 as u16;
+    let code = (wparam.0 >> 16) as u32 & 0xFFFF;
+    let control = HWND(lparam.0 as *mut _);
+    if i32::from(id) == IDCANCEL.0 {
+        // SAFETY: Escape closes our window, as in a dialog.
+        let _ = unsafe { DestroyWindow(hwnd) };
+        return;
+    }
+    let sector = id & !KIND_MASK;
+    match (id & KIND_MASK, code) {
+        (ID_NAME, EN_CHANGE) if !UPDATING.with(Cell::get) => report(SettingsEvent::Rename {
+            sector,
+            text: window_text(control),
+        }),
+        (ID_FIELD, BN_CLICKED) => {
+            if let Some(texts) = TEXTS.with(Cell::get)
+                && shortcut_field::listen(control, sector, texts)
+            {
+                report_field(FieldEvent::Listening);
+            }
+        }
+        (ID_CLEAR, BN_CLICKED) => report(SettingsEvent::Clear(sector)),
+        _ if id == ID_START && code == BN_CLICKED => {
+            // SAFETY: reads the state of our own checkbox.
+            let checked = unsafe { SendMessageW(control, BM_GETCHECK, None, None) }.0 == 1;
+            report(SettingsEvent::StartWithWindows(checked));
+        }
+        _ => {}
+    }
+}

@@ -9,6 +9,16 @@ pub enum Language {
 const LANG_FRENCH: u16 = 0x0C;
 
 impl Language {
+    /// The language named by `PALASWITCH_LANG` (`fr` or `en`), used to see
+    /// the other language without changing the one of Windows.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "fr" => Some(Self::French),
+            "en" => Some(Self::English),
+            _ => None,
+        }
+    }
+
     /// French when the Windows UI language is French, English otherwise.
     pub fn from_windows_lang_id(lang_id: u16) -> Self {
         // The primary language is the low 10 bits of a LANGID.
@@ -38,6 +48,7 @@ pub struct Texts {
     pub settings_reset_message: &'static str,
     pub shortcut_taken_title: &'static str,
     pub shortcut_taken_message: &'static str,
+    pub shortcut_taken_here: &'static str,
     pub settings_menu: &'static str,
     pub settings_title: &'static str,
     pub settings_no_mouse_hint: &'static str,
@@ -105,6 +116,7 @@ static FRENCH: Texts = Texts {
     settings_reset_message: "Le fichier de réglages était illisible. L’ancien est gardé à côté, en .bak.",
     shortcut_taken_title: "Raccourci déjà pris",
     shortcut_taken_message: "{list} : déjà utilisé par un autre programme. Choisis-en un autre dans les réglages.",
+    shortcut_taken_here: "{list} : déjà utilisé par un autre programme.",
     settings_menu: "Réglages…",
     settings_title: "Réglages de palaswitch",
     settings_no_mouse_hint: "Branche la souris ou son récepteur pour régler ses profils.",
@@ -158,6 +170,7 @@ static ENGLISH: Texts = Texts {
     settings_reset_message: "The settings file could not be read. The old one is kept next to it, as .bak.",
     shortcut_taken_title: "Shortcut already in use",
     shortcut_taken_message: "{list}: already used by another program. Pick another one in the settings.",
+    shortcut_taken_here: "{list}: already used by another program.",
     settings_menu: "Settings…",
     settings_title: "palaswitch settings",
     settings_no_mouse_hint: "Plug in the mouse or its receiver to set up its profiles.",
@@ -207,6 +220,14 @@ mod tests {
     }
 
     #[test]
+    fn the_language_can_be_named() {
+        assert_eq!(
+            ["fr", " EN ", "de"].map(Language::from_name),
+            [Some(Language::French), Some(Language::English), None]
+        );
+    }
+
+    #[test]
     fn other_languages_give_english() {
         let languages = [0x0409, 0x0407, 0x0411].map(Language::from_windows_lang_id);
 
@@ -227,6 +248,7 @@ mod tests {
     fn list_texts_have_their_list_in_both_languages() {
         for texts in [&FRENCH, &ENGLISH] {
             assert!(texts.shortcut_taken_message.contains("{list}"));
+            assert!(texts.shortcut_taken_here.contains("{list}"));
         }
     }
 
@@ -249,6 +271,7 @@ mod tests {
                 texts.settings_reset_message,
                 texts.shortcut_taken_title,
                 texts.shortcut_taken_message,
+                texts.shortcut_taken_here,
                 texts.settings_menu,
                 texts.settings_title,
                 texts.settings_no_mouse_hint,
