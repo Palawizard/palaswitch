@@ -36,7 +36,7 @@ use win::HiddenWindow;
 use worker::Worker;
 
 fn main() -> ExitCode {
-    updates::run_installer_hooks();
+    let first_run = updates::run_installer_hooks();
     // Taken before the log file is opened, so that a second launch never
     // writes to the file of the running instance.
     let instance = match win::lock_single_instance() {
@@ -51,7 +51,7 @@ fn main() -> ExitCode {
     logs::init(logs::default_dir().as_deref());
     std::panic::set_hook(Box::new(|info| tracing::error!(%info, "panic")));
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting");
-    let result = run();
+    let result = run(first_run);
     drop(instance);
     match result {
         Ok(()) => {
@@ -65,7 +65,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<(), Box<dyn Error>> {
+fn run(first_run: bool) -> Result<(), Box<dyn Error>> {
     let language = std::env::var("PALASWITCH_LANG")
         .ok()
         .and_then(|name| Language::from_name(&name))
@@ -138,6 +138,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         settings,
         reset,
         updater,
+        first_run,
     };
     *app.borrow_mut() = Some(App::new(startup, worker, worker_updates, ui_events)?);
     win::run_message_loop();

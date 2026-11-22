@@ -74,6 +74,8 @@ pub struct Startup {
     pub reset: Option<Reset>,
     /// `None` outside an installation.
     pub updater: Option<Updater>,
+    /// First start after the installation: the app says where it is.
+    pub first_run: bool,
 }
 
 impl App {
@@ -88,6 +90,7 @@ impl App {
             settings,
             reset,
             updater,
+            first_run,
         } = startup;
         let status = MenuItem::new("", false, None);
         let settings_item = MenuItem::new(texts.settings_menu, true, None);
@@ -170,6 +173,13 @@ impl App {
             );
         }
         app.keep_start_with_windows();
+        if first_run {
+            win::notify(
+                app.tray.window_handle(),
+                texts.installed_title,
+                texts.installed_message,
+            );
+        }
         Ok(app)
     }
 
