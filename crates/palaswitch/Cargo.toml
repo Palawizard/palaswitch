@@ -39,3 +39,4 @@ windows = { workspace = true, features = [
 
 [build-dependencies]
 embed-manifest.workspace = true
+winresource.workspace = true
