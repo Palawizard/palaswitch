@@ -301,11 +301,10 @@ impl App {
     }
 
     fn on_update_event(&mut self, event: UpdateEvent) {
+        self.offer = self.offer.after(&event);
         match event {
-            UpdateEvent::Available(version) => self.offer = Offer::Available(version),
-            UpdateEvent::Withdrawn => self.offer = Offer::Nothing,
-            UpdateEvent::InstallFailed(version) => {
-                self.offer = Offer::Available(version);
+            UpdateEvent::Available(_) | UpdateEvent::Withdrawn => {}
+            UpdateEvent::InstallFailed(_) => {
                 win::notify(
                     self.tray.window_handle(),
                     self.texts.update_failed_title,

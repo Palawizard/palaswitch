@@ -16,6 +16,10 @@ const REPOSITORY: &str = "https://github.com/Palawizard/palaswitch";
 const FIRST_CHECK: Duration = Duration::from_secs(60);
 const AFTER_CHECK: Duration = Duration::from_secs(24 * 60 * 60);
 const AFTER_FAILED_CHECK: Duration = Duration::from_secs(60 * 60);
+/// Velopack's GitHub source sets no network timeout: a connection left half
+/// open, after sleep for instance, would hold the update thread forever.
+const CHECK_DEADLINE: Duration = Duration::from_secs(2 * 60);
+const INSTALL_DEADLINE: Duration = Duration::from_secs(10 * 60);
 
 /// Answers the installer when it starts the app for one of its hooks, and
 /// exits then; returns at once on a normal start, or when the app runs
@@ -58,6 +62,20 @@ pub enum Offer {
 }
 
 impl Offer {
+    /// What the offer becomes after `event`. While an install runs, a check
+    /// that ended meanwhile changes nothing: the thread installs the newest
+    /// version it found.
+    pub fn after(&self, event: &UpdateEvent) -> Self {
+        match (self, event) {
+            (Self::Installing(_), UpdateEvent::Available(_) | UpdateEvent::Withdrawn)
+            | (_, UpdateEvent::QuitToInstall) => self.clone(),
+            (_, UpdateEvent::Available(version) | UpdateEvent::InstallFailed(version)) => {
+                Self::Available(version.clone())
+            }
+            (_, UpdateEvent::Withdrawn) => Self::Nothing,
+        }
+    }
+
     /// The menu entry about the update, and whether it can be chosen.
     pub fn menu_entry(&self, texts: &Texts) -> Option<(String, bool)> {
         match self {
@@ -106,18 +124,43 @@ impl Feed for Github {
     type Error = velopack::Error;
 
     fn newer(&self) -> Result<Option<(String, UpdateInfo)>, velopack::Error> {
-        newer_in(self.0.check_for_updates()?)
+        let manager = self.0.clone();
+        newer_in(within(CHECK_DEADLINE, move || manager.check_for_updates())?)
     }
 
     fn install(&self, release: &UpdateInfo) -> Result<(), velopack::Error> {
-        self.0.download_updates(release, None)?;
-        self.0.wait_exit_then_apply_updates(
-            &release.TargetFullRelease,
-            false,
-            true,
-            Vec::<String>::new(),
-        )
+        let manager = self.0.clone();
+        let release = release.clone();
+        within(INSTALL_DEADLINE, move || {
+            manager.download_updates(&release, None)?;
+            manager.wait_exit_then_apply_updates(
+                &release.TargetFullRelease,
+                false,
+                true,
+                Vec::<String>::new(),
+            )
+        })
     }
+}
+
+/// Runs `job` on a thread of its own and gives up on it after `deadline`:
+/// a job stuck on the network is left behind, and the update thread goes on.
+fn within<T: Send + 'static>(
+    deadline: Duration,
+    job: impl FnOnce() -> Result<T, velopack::Error> + Send + 'static,
+) -> Result<T, velopack::Error> {
+    let (done, result) = mpsc::channel();
+    thread::Builder::new()
+        .name("updates-network".to_owned())
+        .spawn(move || {
+            let _ = done.send(job());
+        })?;
+    result.recv_timeout(deadline).unwrap_or_else(|_| {
+        Err(velopack::Error::Other(format!(
+            "no answer within {} s",
+            deadline.as_secs()
+        )))
+    })
 }
 
 /// The version a check found. The running version came from a published
@@ -234,7 +277,13 @@ impl<R> Watch<R> {
             Ok(newer) => {
                 self.wait = AFTER_CHECK;
                 let Some((version, release)) = newer else {
-                    return self.found.take().map(|_| UpdateEvent::Withdrawn);
+                    let withdrawn = self.found.take().map(|_| UpdateEvent::Withdrawn);
+                    // The latest release may only have been unreadable this
+                    // time: look again soon.
+                    if withdrawn.is_some() {
+                        self.wait = AFTER_FAILED_CHECK;
+                    }
+                    return withdrawn;
                 };
                 let known = self
                     .found
@@ -397,11 +446,52 @@ mod tests {
         let mut state = Watch::new(FIRST_CHECK);
         state.check(&feed);
 
-        let events = [state.check(&feed), state.check(&feed)];
+        let withdrawn = state.check(&feed);
+        let withdrawn_wait = state.wait;
+        let again = state.check(&feed);
 
-        assert_eq!(events, [Some(UpdateEvent::Withdrawn), None]);
-        assert_eq!(state.wait, AFTER_CHECK);
+        assert_eq!(withdrawn, Some(UpdateEvent::Withdrawn));
+        assert_eq!(
+            withdrawn_wait, AFTER_FAILED_CHECK,
+            "an unreadable release is looked at again soon"
+        );
+        assert_eq!((again, state.wait), (None, AFTER_CHECK));
         assert_eq!(state.install(&feed), None);
+    }
+
+    #[test]
+    fn the_offer_follows_the_update_thread() {
+        let available = |version: &str| Offer::Available(version.to_owned());
+        let installing = Offer::Installing("1.1.0".to_owned());
+        let found = UpdateEvent::Available("1.2.0".to_owned());
+        let failed = UpdateEvent::InstallFailed("1.1.0".to_owned());
+
+        assert_eq!(Offer::Nothing.after(&found), available("1.2.0"));
+        assert_eq!(available("1.1.0").after(&found), available("1.2.0"));
+        assert_eq!(
+            available("1.1.0").after(&UpdateEvent::Withdrawn),
+            Offer::Nothing
+        );
+        assert_eq!(installing.after(&failed), available("1.1.0"));
+        assert_eq!(
+            installing.after(&found),
+            installing,
+            "a check ended during the install"
+        );
+        assert_eq!(installing.after(&UpdateEvent::Withdrawn), installing);
+        assert_eq!(installing.after(&UpdateEvent::QuitToInstall), installing);
+    }
+
+    #[test]
+    fn a_network_job_past_its_deadline_is_a_failure() {
+        let quick = within(Duration::from_secs(5), || Ok(7));
+        let stuck = within(Duration::from_millis(50), || {
+            thread::sleep(Duration::from_secs(2));
+            Ok(7)
+        });
+
+        assert_eq!(quick.unwrap(), 7);
+        assert!(stuck.is_err());
     }
 
     #[test]
