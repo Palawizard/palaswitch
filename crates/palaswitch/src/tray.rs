@@ -147,7 +147,8 @@ impl App {
             offer: Offer::Nothing,
         };
         app.show_state();
-        // Before the warnings, which would otherwise be replaced by it.
+        // Shown first: a later notification replaces the current one, and
+        // the warnings matter more.
         if first_run {
             win::inform(
                 app.tray.window_handle(),

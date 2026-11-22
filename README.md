@@ -6,7 +6,7 @@ Developed against a G502 X PLUS (wired and LIGHTSPEED). Other Logitech mice that
 
 ## Installation
 
-Download `palaswitch-win-Setup.exe` from the [latest release](https://github.com/Palawizard/palaswitch/releases/latest) and run it. It installs palaswitch for the current user in `%LOCALAPPDATA%\palaswitch`, without administrator rights, adds it to the Start menu and starts it.
+Download `palaswitch-win-Setup.exe` from the [latest release](https://github.com/Palawizard/palaswitch/releases/latest) and run it. It installs palaswitch for the current user in `%LOCALAPPDATA%\palaswitch`, without administrator rights, adds it to the Start menu and starts it; a notification then says where its icon is.
 
 The installer is not signed, so Windows SmartScreen may stop it with "Windows protected your PC". Click "More info", then "Run anyway". Some antivirus programs may also block the installer or the small launcher it puts in the install folder, for the same reason; if yours does, allow `%LOCALAPPDATA%\palaswitch` in it.
 
