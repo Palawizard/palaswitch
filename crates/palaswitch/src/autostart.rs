@@ -94,8 +94,9 @@ impl RunKey {
     /// Removes the value and the note of a switch-off, whatever executable
     /// the value starts: nothing is left behind when the app is uninstalled.
     pub fn forget(self) -> windows::core::Result<()> {
-        delete_value(self.subkey, self.value)?;
-        delete_value(self.approved_subkey, self.value)
+        let run = delete_value(self.subkey, self.value);
+        let approved = delete_value(self.approved_subkey, self.value);
+        run.and(approved)
     }
 
     fn write_command(self, exe: &Path) -> windows::core::Result<()> {
