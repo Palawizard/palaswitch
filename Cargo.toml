@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/palaswitch", "crates/palaswitch-cli", "crates/palaswitch-device", "crates/palaswitch-hidpp"]
 
 [workspace.package]
-version = "1.0.0-rc.3"
+version = "1.0.0-rc.4"
 edition = "2024"
 rust-version = "1.90"
 license = "MIT"
