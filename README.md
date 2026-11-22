@@ -65,7 +65,7 @@ To build the installer locally, install [vpk](https://docs.velopack.io) (`dotnet
 pwsh scripts/pack.ps1
 ```
 
-The installer and the update packages land in `target\packeleases`. Pushing a tag such as `v1.0.0`, equal to the version in `Cargo.toml`, builds them in GitHub Actions and uploads them as a draft release. A version with a suffix, such as `1.1.0-rc.1`, becomes a pre-release; installed pre-releases are offered the next pre-releases, stable versions only stable ones.
+The installer and the update packages land in `target\pack\releases`. Pushing a tag such as `v1.0.0`, equal to the version in `Cargo.toml`, builds them in GitHub Actions and uploads them as a draft release. A version with a suffix, such as `1.1.0-rc.1`, becomes a pre-release; installed pre-releases are offered the next pre-releases, stable versions only stable ones.
 
 To see the interface in the other language without changing the one of Windows, start the app with `PALASWITCH_LANG` set to `fr` or `en`.
 
