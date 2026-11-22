@@ -1,16 +1,18 @@
 # palaswitch
 
-A small Windows tray utility that switches the onboard profile of a Logitech gaming mouse, from the tray menu or with a global keyboard shortcut. It talks to the mouse directly over HID++ 2.0 (onboard profiles feature, 0x8100), so it needs neither G HUB nor a script running in the background.
+palaswitch is a Windows tray app that switches the onboard profile of a Logitech gaming mouse, with a click in its menu or a global keyboard shortcut. It talks to the mouse directly over HID++ 2.0 (onboard profiles feature, 0x8100), so neither G HUB nor a script has to run in the background.
 
-Developed against a G502 X PLUS (wired and LIGHTSPEED). Other Logitech mice that keep profiles in onboard memory are expected to work, but they have not been tried.
+![The palaswitch menu open above its tray icon, which shows profile 2; the menu lists three profiles with the active one ticked](docs/images/tray-menu.png)
+
+Version 1.0.0, maintained by one person. Developed and tested with a G502 X PLUS, wired and through its LIGHTSPEED receiver. Other Logitech mice that keep profiles in onboard memory should work, but none has been tried. Made for Windows 10 and 11, tested on Windows 11.
+
+palaswitch only picks which onboard profile is active. Buttons, DPI, lighting and macros are still set in G HUB or Onboard Memory Manager. Close them while palaswitch runs: they talk to the mouse on the same channel.
 
 ## Installation
 
 Download `palaswitch-win-Setup.exe` from the [latest release](https://github.com/Palawizard/palaswitch/releases/latest) and run it. It installs palaswitch for the current user in `%LOCALAPPDATA%\palaswitch`, without administrator rights, adds it to the Start menu and starts it; a notification then says where its icon is.
 
 The installer is not signed, so Windows SmartScreen may stop it with "Windows protected your PC". Click "More info", then "Run anyway". Some antivirus programs may also block the installer or the small launcher it puts in the install folder, for the same reason; if yours does, allow `%LOCALAPPDATA%\palaswitch` in it.
-
-Windows 10 and 11 are supported.
 
 ### Updates
 
@@ -20,9 +22,23 @@ About a minute after it starts, then once a day, palaswitch asks GitHub Releases
 
 Open Settings > Apps > Installed apps, find palaswitch and choose Uninstall. This removes the app, its logs and its "Start with Windows" entry. Your settings stay in `%APPDATA%\palaswitch`; delete that folder to remove them too.
 
-### Build from source
+## Usage
 
-On Windows 10 or 11:
+Run `palaswitch.exe`. An icon appears in the notification area with the number of the active profile, or a crossed-out mouse when no mouse answers. Windows may put new icons behind the ^ arrow: drag it onto the taskbar to keep it in sight.
+
+Click the icon to open the menu: it lists the enabled profiles with the active one ticked. Choose a profile to make it active, Settings to open the settings window, or Quit to close the app. A wireless mouse that has not moved for a few minutes goes to sleep and does not answer: move it, then try again. If a change fails, Windows shows a short notification.
+
+![The palaswitch settings window: mouse name and active profile, a name and a shortcut for each profile, and the Start with Windows box](docs/images/settings-window.png)
+
+The settings window lists the enabled profiles. Give a profile a name to show it in the menu instead of "Profile 1". To give it a keyboard shortcut, click its shortcut field and press the keys, for example Ctrl+Alt+F1; Escape keeps the previous one and Clear removes it. A shortcut needs Ctrl or Alt, except F13 to F24. Win combinations, combinations Windows uses everywhere (Alt+F4, Alt+Space) and Ctrl+Alt combinations that type a character with AltGr on your keyboard (such as @ or € on French keyboards) are refused. If another program already uses a shortcut, the window says so and keeps the previous one. Shortcuts work in full-screen games; games run as administrator are not covered. Changes are saved at once, in `%APPDATA%\palaswitch\settings.toml`. "Start with Windows" starts the app at sign-in, straight into the notification area. Launching the app while it runs opens the settings window.
+
+With two mice with onboard profiles paired to the same receiver, only the first one is used. Only one copy of the app runs at a time. Logs go to `%LOCALAPPDATA%\palaswitch\logs` (at most 2 MB).
+
+The interface follows the Windows display language: French if Windows is in French, English otherwise.
+
+## Development
+
+To build from source on Windows 10 or 11:
 
 1. Install Rust stable with the MSVC toolchain (https://rustup.rs) and the Visual Studio C++ Build Tools.
 2. Clone the repository and build:
@@ -34,22 +50,6 @@ On Windows 10 or 11:
    ```
 
 The app is `target\release\palaswitch.exe`.
-
-## Usage
-
-Run `palaswitch.exe`. An icon appears in the notification area with the number of the active profile, or a crossed-out mouse when no mouse answers. Windows may put new icons behind the ^ arrow: drag it onto the taskbar to keep it in sight.
-
-Click the icon to open the menu: it lists the enabled profiles with the active one ticked. Choose a profile to make it active, Settings to open the settings window, or Quit to close the app. A wireless mouse that has not moved for a few minutes goes to sleep and does not answer: move it, then try again. If a change fails, Windows shows a short notification.
-
-The settings window lists the enabled profiles. Give a profile a name to show it in the menu instead of "Profile 1". To give it a keyboard shortcut, click its shortcut field and press the keys, for example Ctrl+Alt+F1; Escape keeps the previous one and Clear removes it. A shortcut needs Ctrl or Alt, except F13 to F24. Win combinations, combinations Windows uses everywhere (Alt+F4, Alt+Space) and Ctrl+Alt combinations that type a character with AltGr on your keyboard (such as @ or € on French keyboards) are refused. If another program already uses a shortcut, the window says so and keeps the previous one. Shortcuts work in full-screen games; games run as administrator are not covered. Changes are saved at once, in `%APPDATA%\palaswitch\settings.toml`. "Start with Windows" starts the app at sign-in, straight into the notification area. Launching the app while it runs opens the settings window.
-
-With two mice with onboard profiles paired to the same receiver, only the first one is used. Only one copy of the app runs at a time. Logs go to `%LOCALAPPDATA%\palaswitch\logs` (at most 2 MB).
-
-Do not run G HUB or Onboard Memory Manager while palaswitch is running: they talk to the mouse on the same channel.
-
-The interface follows the Windows display language: French if Windows is in French, English otherwise.
-
-## Development
 
 Run every check (format, lint, tests, release build) with:
 
