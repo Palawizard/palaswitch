@@ -16,6 +16,7 @@ mod shortcut_field;
 mod text;
 mod theme;
 mod tray;
+mod updates;
 mod win;
 mod worker;
 
@@ -35,6 +36,7 @@ use win::HiddenWindow;
 use worker::Worker;
 
 fn main() -> ExitCode {
+    updates::run_installer_hooks();
     // Taken before the log file is opened, so that a second launch never
     // writes to the file of the running instance.
     let instance = match win::lock_single_instance() {
@@ -91,6 +93,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let (ui_sender, ui_events) = mpsc::channel();
     let menu_sender = ui_sender.clone();
     let hotkey_sender = ui_sender.clone();
+    let updates_sender = ui_sender.clone();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let _ = menu_sender.send(UiEvent::Menu(event.id));
         doorbell.ring();
@@ -119,18 +122,24 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }));
 
-    let (update_sender, updates) = mpsc::channel();
+    let (worker_sender, worker_updates) = mpsc::channel();
     let worker = Worker::spawn(move |update| {
-        let _ = update_sender.send(update);
+        let _ = worker_sender.send(update);
         doorbell.ring();
     })?;
+
+    let updater = updates::Updater::spawn(move |event| {
+        let _ = updates_sender.send(UiEvent::Update(event));
+        doorbell.ring();
+    });
 
     let startup = Startup {
         texts,
         settings,
         reset,
+        updater,
     };
-    *app.borrow_mut() = Some(App::new(startup, worker, updates, ui_events)?);
+    *app.borrow_mut() = Some(App::new(startup, worker, worker_updates, ui_events)?);
     win::run_message_loop();
 
     // Dropping the app removes the icon at once instead of leaving it until

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/palaswitch", "crates/palaswitch-cli", "crates/palaswitch-device", "crates/palaswitch-hidpp"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.90"
 license = "MIT"
@@ -19,9 +19,10 @@ palaswitch-hidpp = { path = "crates/palaswitch-hidpp" }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.2.2"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi", "tracing-log"] }
 # Pinned: the app addresses its tray icon by the uID this version gives it (ADR-002).
 tray-icon = "=0.26.1"
+velopack = "1.2.161"
 windows = "0.62.2"
 
 [workspace.lints.rust]

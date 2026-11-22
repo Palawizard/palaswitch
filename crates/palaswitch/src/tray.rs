@@ -13,6 +13,7 @@ use crate::icon::picture;
 use crate::model::{Failure, IconKind, MenuModel, MouseState, menu_text, tooltip};
 use crate::settings_window::SettingsWindow;
 use crate::text::Texts;
+use crate::updates::{Offer, UpdateEvent, Updater};
 use crate::win;
 use crate::worker::{Command, Update, Worker};
 
@@ -27,6 +28,7 @@ pub enum UiEvent {
     Hotkey(u32),
     /// The pointer came over the icon: the menu may open soon.
     PointerOver,
+    Update(UpdateEvent),
 }
 
 pub struct App {
@@ -39,6 +41,8 @@ pub struct App {
     status: MenuItem,
     status_shown: bool,
     settings_item: MenuItem,
+    update_item: MenuItem,
+    update_item_shown: bool,
     quit: MenuItem,
     profiles: Vec<(u16, CheckMenuItem)>,
     state: MouseState,
@@ -51,6 +55,8 @@ pub struct App {
     /// Set when the settings file could not be read and is still in place:
     /// it is not written over until the next start.
     keep_file: Option<KeepFile>,
+    updater: Option<Updater>,
+    offer: Offer,
 }
 
 /// Why the settings file is left alone until the next start.
@@ -66,6 +72,8 @@ pub struct Startup {
     pub settings: Settings,
     /// Set when the settings file could not be used.
     pub reset: Option<Reset>,
+    /// `None` outside an installation.
+    pub updater: Option<Updater>,
 }
 
 impl App {
@@ -79,9 +87,11 @@ impl App {
             texts,
             settings,
             reset,
+            updater,
         } = startup;
         let status = MenuItem::new("", false, None);
         let settings_item = MenuItem::new(texts.settings_menu, true, None);
+        let update_item = MenuItem::new("", true, None);
         let quit = MenuItem::new(texts.quit, true, None);
         let menu = Menu::new();
         menu.append(&PredefinedMenuItem::separator())?;
@@ -110,6 +120,8 @@ impl App {
             status,
             status_shown: false,
             settings_item,
+            update_item,
+            update_item_shown: false,
             quit,
             profiles: Vec::new(),
             state,
@@ -128,6 +140,8 @@ impl App {
                     kept_at: Some(_), ..
                 } => None,
             }),
+            updater,
+            offer: Offer::Nothing,
         };
         app.show_state();
         if let Some(reset) = &reset {
@@ -263,6 +277,8 @@ impl App {
             }
             UiEvent::Menu(id) if id == *self.quit.id() => win::quit(),
             UiEvent::Menu(id) if id == *self.settings_item.id() => self.open_settings(),
+            UiEvent::Menu(id) if id == *self.update_item.id() => self.install_update(),
+            UiEvent::Update(event) => self.on_update_event(event),
             UiEvent::Menu(id) => {
                 let sector = self
                     .profiles
@@ -281,6 +297,68 @@ impl App {
                     None => tracing::info!(?id, "menu entry no longer shown"),
                 }
             }
+        }
+    }
+
+    fn on_update_event(&mut self, event: UpdateEvent) {
+        self.offer = self.offer.after(&event);
+        match event {
+            UpdateEvent::Available(_) | UpdateEvent::Withdrawn => {}
+            UpdateEvent::InstallFailed(_) => {
+                win::notify(
+                    self.tray.window_handle(),
+                    self.texts.update_failed_title,
+                    self.texts.update_failed_message,
+                );
+            }
+            UpdateEvent::QuitToInstall => {
+                tracing::info!("quitting for the installer");
+                win::quit();
+                return;
+            }
+        }
+        self.show_offer();
+    }
+
+    pub(super) fn install_update(&mut self) {
+        let Offer::Available(version) = &self.offer else {
+            return;
+        };
+        let Some(updater) = &self.updater else {
+            return;
+        };
+        if updater.install() {
+            self.offer = Offer::Installing(version.clone());
+            self.show_offer();
+        } else {
+            self.on_update_event(UpdateEvent::InstallFailed(version.clone()));
+        }
+    }
+
+    /// Shows the update offer in the menu, above the settings entry, and in
+    /// the settings window.
+    pub(super) fn show_offer(&mut self) {
+        match self.offer.menu_entry(self.texts) {
+            Some((text, enabled)) => {
+                self.update_item.set_text(text);
+                self.update_item.set_enabled(enabled);
+                if !self.update_item_shown {
+                    // After the status, the profiles and their separator.
+                    let at = usize::from(self.status_shown) + self.profiles.len() + 1;
+                    self.update_item_shown = self.menu.insert(&self.update_item, at).is_ok();
+                }
+            }
+            None if self.update_item_shown => {
+                self.update_item_shown = self.menu.remove(&self.update_item).is_err();
+            }
+            None => {}
+        }
+        let line = self.offer.settings_line(self.texts);
+        if let Some(window) = self.window.as_mut() {
+            window.show_update(
+                line.as_ref()
+                    .map(|(text, enabled)| (text.as_str(), *enabled)),
+            );
         }
     }
 

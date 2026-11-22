@@ -72,3 +72,23 @@ Keep `global-hotkey`. The thread lives only while a shortcut is held (a fraction
 
 - No timer and no CPU use at rest, measured with the window closed.
 - If this ever matters, registering the shortcuts with `RegisterHotKey` on the app's own hidden window would remove both the thread and the dependency.
+
+## ADR-004: C runtime linked into the exe, update network calls bounded
+
+- Date: 2026-11-22. Status: accepted.
+
+### Context
+
+The first install on a clean Windows Sandbox failed: the exe needed `VCRUNTIME140.dll`, which only comes with the Visual C++ redistributable. Velopack can install the redistributable, but that needs administrator rights, which REL-01 rules out. Separately, Velopack's GitHub source sets no network timeout, so a connection left half open (after sleep, behind a captive portal) could hold the update thread forever.
+
+### Decision
+
+- Link the C runtime statically (`-C target-feature=+crt-static` in `.cargo/config.toml`). `scripts/pack.ps1` refuses to pack an exe that names `vcruntime*.dll` or `api-ms-win-crt-*`.
+- Run each update check and download on a thread of its own with a deadline (2 min, 10 min); past it, the call counts as failed and the thread is left behind. The updater is started only after a download that finished in time.
+
+### Consequences
+
+- The exe grows from 4.7 MB to 4.8 MB and depends only on DLLs that ship with Windows.
+- A `RUSTFLAGS` variable in the environment replaces the config file; the pack check catches that.
+- A network call that never answers leaves one idle thread per try, at most one an hour.
+- Updates are trusted on the strength of the GitHub account: the package is checked against the SHA-256 in the release feed, and nothing is signed.

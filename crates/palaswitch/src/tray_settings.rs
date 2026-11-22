@@ -23,7 +23,11 @@ impl App {
         let started = Instant::now();
         let view = View::of(&self.state, &self.settings, self.texts);
         let start_with_windows = std::env::current_exe().is_ok_and(|exe| RUN_KEY.is_enabled(&exe));
-        match SettingsWindow::open(self.texts, &view, start_with_windows) {
+        let update = self.offer.settings_line(self.texts);
+        let update = update
+            .as_ref()
+            .map(|(text, enabled)| (text.as_str(), *enabled));
+        match SettingsWindow::open(self.texts, &view, start_with_windows, update) {
             Ok(window) => {
                 tracing::info!(
                     elapsed_ms = started.elapsed().as_millis(),
@@ -86,6 +90,7 @@ impl App {
                 self.refresh_settings_window();
             }
             SettingsEvent::StartWithWindows(enabled) => self.start_with_windows(enabled),
+            SettingsEvent::InstallUpdate => self.install_update(),
             SettingsEvent::DpiChanged(dpi) => {
                 if let Some(window) = self.window.as_mut() {
                     window.rescale(dpi);

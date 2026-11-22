@@ -2,13 +2,27 @@
 
 A small Windows tray utility that switches the onboard profile of a Logitech gaming mouse, from the tray menu or with a global keyboard shortcut. It talks to the mouse directly over HID++ 2.0 (onboard profiles feature, 0x8100), so it needs neither G HUB nor a script running in the background.
 
-Status: early development, no release yet.
-
 Developed against a G502 X PLUS (wired and LIGHTSPEED). Other Logitech mice that keep profiles in onboard memory are expected to work, but they have not been tried.
 
 ## Installation
 
-There is no release yet. To build from source on Windows 10 or 11:
+Download `palaswitch-win-Setup.exe` from the [latest release](https://github.com/Palawizard/palaswitch/releases/latest) and run it. It installs palaswitch for the current user in `%LOCALAPPDATA%\palaswitch`, without administrator rights, adds it to the Start menu and starts it.
+
+The installer is not signed, so Windows SmartScreen may stop it with "Windows protected your PC". Click "More info", then "Run anyway". Some antivirus programs may also block the installer or the small launcher it puts in the install folder, for the same reason; if yours does, allow `%LOCALAPPDATA%\palaswitch` in it.
+
+Windows 10 and 11 are supported.
+
+### Updates
+
+About a minute after it starts, then once a day, palaswitch asks GitHub Releases whether a newer version exists. This is the only time it goes online. When there is one, the menu shows "Install version 1.2.0" (with the new number), and so does the settings window. Choosing it downloads the update, closes the app and starts the new version.
+
+### Uninstall
+
+Open Settings > Apps > Installed apps, find palaswitch and choose Uninstall. This removes the app, its logs and its "Start with Windows" entry. Your settings stay in `%APPDATA%\palaswitch`; delete that folder to remove them too.
+
+### Build from source
+
+On Windows 10 or 11:
 
 1. Install Rust stable with the MSVC toolchain (https://rustup.rs) and the Visual Studio C++ Build Tools.
 2. Clone the repository and build:
@@ -43,7 +57,15 @@ Run every check (format, lint, tests, release build) with:
 pwsh scripts/verify.ps1
 ```
 
-The CI runs the same script.
+The CI runs the same script, then packs the installer.
+
+To build the installer locally, install [vpk](https://docs.velopack.io) (`dotnet tool install -g vpk --version 1.2.161`, needs the .NET 8 SDK), then run:
+
+```powershell
+pwsh scripts/pack.ps1
+```
+
+The installer and the update packages land in `target\pack\releases`. Pushing a tag such as `v1.0.0`, equal to the version in `Cargo.toml`, builds them in GitHub Actions and uploads them as a draft release. A version with a suffix, such as `1.1.0-rc.1`, becomes a pre-release; installed pre-releases are offered the next pre-releases, stable versions only stable ones.
 
 To see the interface in the other language without changing the one of Windows, start the app with `PALASWITCH_LANG` set to `fr` or `en`.
 
