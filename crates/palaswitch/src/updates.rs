@@ -19,7 +19,7 @@ const AFTER_FAILED_CHECK: Duration = Duration::from_secs(60 * 60);
 /// Velopack's GitHub source sets no network timeout: a connection left half
 /// open, after sleep for instance, would hold the update thread forever.
 const CHECK_DEADLINE: Duration = Duration::from_secs(2 * 60);
-const INSTALL_DEADLINE: Duration = Duration::from_secs(10 * 60);
+const DOWNLOAD_DEADLINE: Duration = Duration::from_secs(10 * 60);
 
 /// Answers the installer when it starts the app for one of its hooks, and
 /// exits then; returns at once on a normal start, or when the app runs
@@ -62,13 +62,14 @@ pub enum Offer {
 }
 
 impl Offer {
-    /// What the offer becomes after `event`. While an install runs, a check
-    /// that ended meanwhile changes nothing: the thread installs the newest
-    /// version it found.
+    /// What the offer becomes after `event`. A version found while an
+    /// install is asked for is the one the thread installs.
     pub fn after(&self, event: &UpdateEvent) -> Self {
         match (self, event) {
-            (Self::Installing(_), UpdateEvent::Available(_) | UpdateEvent::Withdrawn)
-            | (_, UpdateEvent::QuitToInstall) => self.clone(),
+            (_, UpdateEvent::QuitToInstall) => self.clone(),
+            (Self::Installing(_), UpdateEvent::Available(version)) => {
+                Self::Installing(version.clone())
+            }
             (_, UpdateEvent::Available(version) | UpdateEvent::InstallFailed(version)) => {
                 Self::Available(version.clone())
             }
@@ -130,21 +131,25 @@ impl Feed for Github {
 
     fn install(&self, release: &UpdateInfo) -> Result<(), velopack::Error> {
         let manager = self.0.clone();
-        let release = release.clone();
-        within(INSTALL_DEADLINE, move || {
-            manager.download_updates(&release, None)?;
-            manager.wait_exit_then_apply_updates(
-                &release.TargetFullRelease,
-                false,
-                true,
-                Vec::<String>::new(),
-            )
-        })
+        let download = release.clone();
+        within(DOWNLOAD_DEADLINE, move || {
+            manager.download_updates(&download, None)
+        })?;
+        // Started here rather than with the download: a download given up
+        // on must never start the updater later on.
+        self.0.wait_exit_then_apply_updates(
+            &release.TargetFullRelease,
+            false,
+            true,
+            Vec::<String>::new(),
+        )
     }
 }
 
 /// Runs `job` on a thread of its own and gives up on it after `deadline`:
 /// a job stuck on the network is left behind, and the update thread goes on.
+/// A connection that never answers leaves one idle thread per try, at most
+/// one an hour.
 fn within<T: Send + 'static>(
     deadline: Duration,
     job: impl FnOnce() -> Result<T, velopack::Error> + Send + 'static,
@@ -303,8 +308,12 @@ impl<R> Watch<R> {
         }
     }
 
+    /// Always answers: the interface shows the install as running until it
+    /// hears back.
     fn install<F: Feed<Release = R>>(&mut self, feed: &F) -> Option<UpdateEvent> {
-        let (version, release) = self.found.as_ref()?;
+        let Some((version, release)) = self.found.as_ref() else {
+            return Some(UpdateEvent::Withdrawn);
+        };
         tracing::info!(version, "installing an update");
         match feed.install(release) {
             Ok(()) => Some(UpdateEvent::QuitToInstall),
@@ -456,13 +465,13 @@ mod tests {
             "an unreadable release is looked at again soon"
         );
         assert_eq!((again, state.wait), (None, AFTER_CHECK));
-        assert_eq!(state.install(&feed), None);
+        assert_eq!(state.install(&feed), Some(UpdateEvent::Withdrawn));
     }
 
     #[test]
     fn the_offer_follows_the_update_thread() {
         let available = |version: &str| Offer::Available(version.to_owned());
-        let installing = Offer::Installing("1.1.0".to_owned());
+        let installing = |version: &str| Offer::Installing(version.to_owned());
         let found = UpdateEvent::Available("1.2.0".to_owned());
         let failed = UpdateEvent::InstallFailed("1.1.0".to_owned());
 
@@ -472,14 +481,37 @@ mod tests {
             available("1.1.0").after(&UpdateEvent::Withdrawn),
             Offer::Nothing
         );
-        assert_eq!(installing.after(&failed), available("1.1.0"));
+        assert_eq!(installing("1.1.0").after(&failed), available("1.1.0"));
         assert_eq!(
-            installing.after(&found),
-            installing,
-            "a check ended during the install"
+            installing("1.1.0").after(&found),
+            installing("1.2.0"),
+            "the thread installs the version found last"
         );
-        assert_eq!(installing.after(&UpdateEvent::Withdrawn), installing);
-        assert_eq!(installing.after(&UpdateEvent::QuitToInstall), installing);
+        assert_eq!(
+            installing("1.1.0").after(&UpdateEvent::Withdrawn),
+            Offer::Nothing
+        );
+        assert_eq!(
+            installing("1.1.0").after(&UpdateEvent::QuitToInstall),
+            installing("1.1.0")
+        );
+    }
+
+    #[test]
+    fn an_install_asked_for_after_a_withdrawal_ends_the_offer() {
+        let feed = Scripted::new(vec![Ok(Some("1.1.0")), Ok(None)], vec![]);
+        let mut state = Watch::new(FIRST_CHECK);
+        state.check(&feed);
+        // The click lands while the check that withdraws the version runs:
+        // the interface shows the install, then hears of the withdrawal and
+        // of the answer to its request.
+        let installing = Offer::Installing("1.1.0".to_owned());
+        let withdrawn = state.check(&feed).unwrap();
+        let answer = state.install(&feed).unwrap();
+
+        assert_eq!(installing.after(&withdrawn), Offer::Nothing);
+        assert_eq!(installing.after(&answer), Offer::Nothing);
+        assert!(feed.installed.borrow().is_empty());
     }
 
     #[test]
@@ -499,7 +531,7 @@ mod tests {
         let feed = Scripted::new(vec![], vec![]);
         let mut state = Watch::new(FIRST_CHECK);
 
-        assert_eq!(state.install(&feed), None);
+        assert_eq!(state.install(&feed), Some(UpdateEvent::Withdrawn));
         assert!(feed.installed.borrow().is_empty());
     }
 
