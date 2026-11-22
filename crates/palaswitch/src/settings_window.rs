@@ -135,10 +135,13 @@ pub struct SettingsWindow {
 }
 
 impl SettingsWindow {
+    /// `update` is the line about an update and whether it can be
+    /// installed, laid out before the window is shown.
     pub fn open(
         texts: &'static Texts,
         view: &View,
         start_with_windows: bool,
+        update: Option<(&str, bool)>,
     ) -> windows::core::Result<Self> {
         TEXTS.with(|cell| cell.set(Some(texts)));
         DESTROYED.with(|cell| cell.set(false));
@@ -224,6 +227,7 @@ impl SettingsWindow {
             brushes: Brushes::new(&palette),
         };
         window.set_start_with_windows(start_with_windows);
+        window.show_update(update);
         window.restyle();
         window.show(view);
         window.place_on_cursor_monitor();
@@ -387,16 +391,17 @@ impl SettingsWindow {
     /// Shows the line about an update and its button, or hides both.
     pub fn show_update(&mut self, line: Option<(&str, bool)>) {
         let shown = line.is_some();
-        if let Some((text, can_install)) = line {
+        let can_install = line.is_some_and(|(_, can_install)| can_install);
+        if let Some((text, _)) = line {
             set_text(self.update_line, text);
-            // SAFETY: moves the focus off a button about to be disabled,
-            // then enables or disables it; both are controls of ours.
-            unsafe {
-                if !can_install && GetFocus() == self.update_button {
-                    let _ = SetFocus(Some(self.start));
-                }
-                let _ = EnableWindow(self.update_button, can_install);
+        }
+        // SAFETY: moves the focus off a button about to be hidden or
+        // disabled, then enables or disables it; both are controls of ours.
+        unsafe {
+            if !can_install && GetFocus() == self.update_button {
+                let _ = SetFocus(Some(self.start));
             }
+            let _ = EnableWindow(self.update_button, can_install);
         }
         for control in [self.update_line, self.update_button] {
             set_visible(control, shown);
