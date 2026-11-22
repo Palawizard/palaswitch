@@ -93,6 +93,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let (ui_sender, ui_events) = mpsc::channel();
     let menu_sender = ui_sender.clone();
     let hotkey_sender = ui_sender.clone();
+    let updates_sender = ui_sender.clone();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let _ = menu_sender.send(UiEvent::Menu(event.id));
         doorbell.ring();
@@ -127,10 +128,16 @@ fn run() -> Result<(), Box<dyn Error>> {
         doorbell.ring();
     })?;
 
+    let updater = updates::Updater::spawn(move |event| {
+        let _ = updates_sender.send(UiEvent::Update(event));
+        doorbell.ring();
+    });
+
     let startup = Startup {
         texts,
         settings,
         reset,
+        updater,
     };
     *app.borrow_mut() = Some(App::new(startup, worker, updates, ui_events)?);
     win::run_message_loop();

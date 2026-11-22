@@ -41,6 +41,7 @@ const ID_CLEAR: u16 = 0x3000;
 const ID_DETAIL: u16 = 0x4001;
 const ID_MESSAGE: u16 = 0x4002;
 const ID_START: u16 = 0x4003;
+const ID_UPDATE: u16 = 0x4004;
 const KIND_MASK: u16 = 0xF000;
 /// Static text shown as is: an ampersand in a profile name is not taken for
 /// a keyboard accelerator. From WinUser.h.
@@ -59,6 +60,7 @@ const EDIT_HEIGHT: i32 = 24;
 const ROW_STEP: i32 = CONTROL_HEIGHT + GAP;
 const LINE_HEIGHT: i32 = 20;
 const TITLE_HEIGHT: i32 = 28;
+const UPDATE_BUTTON_WIDTH: i32 = 120;
 
 /// What the window tells the app.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +69,7 @@ pub enum SettingsEvent {
     Field(FieldEvent),
     Clear(u16),
     StartWithWindows(bool),
+    InstallUpdate,
     DpiChanged(u32),
     Closed,
 }
@@ -121,6 +124,10 @@ pub struct SettingsWindow {
     rows: Vec<RowControls>,
     message: HWND,
     start: HWND,
+    update_line: HWND,
+    update_button: HWND,
+    /// Whether an update is offered: the line and its button are shown.
+    update_shown: bool,
     dpi: u32,
     palette: Palette,
     fonts: Fonts,
@@ -188,6 +195,16 @@ impl SettingsWindow {
             WINDOW_STYLE(BS_AUTOCHECKBOX as u32) | WS_TABSTOP,
             ID_START,
         );
+        let update_line = child(w!("STATIC"), "", SS_NOPREFIX, 0);
+        let update_button = child(
+            w!("BUTTON"),
+            texts.update_install,
+            WINDOW_STYLE(BS_PUSHBUTTON as u32) | WS_TABSTOP,
+            ID_UPDATE,
+        );
+        for control in [update_line, update_button] {
+            set_visible(control, false);
+        }
         let mut window = Self {
             hwnd,
             texts,
@@ -198,6 +215,9 @@ impl SettingsWindow {
             rows: Vec::new(),
             message,
             start,
+            update_line,
+            update_button,
+            update_shown: false,
             dpi,
             palette,
             fonts: Fonts::new(dpi),
@@ -364,6 +384,29 @@ impl SettingsWindow {
         }
     }
 
+    /// Shows the line about an update and its button, or hides both.
+    pub fn show_update(&mut self, line: Option<(&str, bool)>) {
+        let shown = line.is_some();
+        if let Some((text, can_install)) = line {
+            set_text(self.update_line, text);
+            // SAFETY: moves the focus off a button about to be disabled,
+            // then enables or disables it; both are controls of ours.
+            unsafe {
+                if !can_install && GetFocus() == self.update_button {
+                    let _ = SetFocus(Some(self.start));
+                }
+                let _ = EnableWindow(self.update_button, can_install);
+            }
+        }
+        for control in [self.update_line, self.update_button] {
+            set_visible(control, shown);
+        }
+        if shown != self.update_shown {
+            self.update_shown = shown;
+            self.layout();
+        }
+    }
+
     /// Follows a change of the window's DPI: new fonts, new positions.
     pub fn rescale(&mut self, dpi: u32) {
         self.dpi = dpi.max(96);
@@ -399,6 +442,8 @@ impl SettingsWindow {
             (self.shortcut_header, None),
             (self.message, None),
             (self.start, Some(ControlKind::Button)),
+            (self.update_line, None),
+            (self.update_button, Some(ControlKind::Button)),
         ];
         for row in &self.rows {
             controls.push((row.name, Some(ControlKind::Edit)));
@@ -478,7 +523,27 @@ impl SettingsWindow {
         place(self.message, MARGIN, y, CONTENT_WIDTH, 2 * LINE_HEIGHT);
         y += 2 * LINE_HEIGHT + GAP;
         place(self.start, MARGIN, y, CONTENT_WIDTH, CONTROL_HEIGHT);
-        y += CONTROL_HEIGHT + MARGIN;
+        y += CONTROL_HEIGHT;
+        if self.update_shown {
+            y += GAP;
+            let button_x = MARGIN + CONTENT_WIDTH - UPDATE_BUTTON_WIDTH;
+            place(
+                self.update_line,
+                MARGIN,
+                y + (CONTROL_HEIGHT - LINE_HEIGHT) / 2,
+                button_x - GAP - MARGIN,
+                LINE_HEIGHT,
+            );
+            place(
+                self.update_button,
+                button_x,
+                y,
+                UPDATE_BUTTON_WIDTH,
+                CONTROL_HEIGHT,
+            );
+            y += CONTROL_HEIGHT;
+        }
+        y += MARGIN;
         self.resize_client(MARGIN * 2 + CONTENT_WIDTH, y);
     }
 

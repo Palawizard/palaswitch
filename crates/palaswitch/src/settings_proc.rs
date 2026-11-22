@@ -147,6 +147,7 @@ fn on_command(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) {
             let checked = unsafe { SendMessageW(control, BM_GETCHECK, None, None) }.0 == 1;
             report(SettingsEvent::StartWithWindows(checked));
         }
+        _ if id == ID_UPDATE && code == BN_CLICKED => report(SettingsEvent::InstallUpdate),
         _ => {}
     }
 }

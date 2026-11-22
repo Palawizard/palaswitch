@@ -30,6 +30,7 @@ impl App {
                     "settings window open"
                 );
                 self.window = Some(window);
+                self.show_offer();
                 self.worker.send(Command::Refresh);
                 if let Some(text) = self.conflicts_text(self.texts.shortcut_taken_here) {
                     self.set_message(Some(&text));
@@ -86,6 +87,7 @@ impl App {
                 self.refresh_settings_window();
             }
             SettingsEvent::StartWithWindows(enabled) => self.start_with_windows(enabled),
+            SettingsEvent::InstallUpdate => self.install_update(),
             SettingsEvent::DpiChanged(dpi) => {
                 if let Some(window) = self.window.as_mut() {
                     window.rescale(dpi);

@@ -79,6 +79,12 @@ pub struct Texts {
     pub save_blocked_invalid: &'static str,
     pub settings_unreadable_title: &'static str,
     pub autostart_failed: &'static str,
+    pub update_menu: &'static str,
+    pub update_installing: &'static str,
+    pub update_available: &'static str,
+    pub update_install: &'static str,
+    pub update_failed_title: &'static str,
+    pub update_failed_message: &'static str,
     pub key_ctrl: &'static str,
     pub key_alt: &'static str,
     pub key_shift: &'static str,
@@ -158,6 +164,12 @@ static FRENCH: Texts = Texts {
     save_blocked_invalid: "Réglages non enregistrés. Corrige ou supprime %APPDATA%\\palaswitch\\settings.toml, puis relance palaswitch.",
     settings_unreadable_title: "Réglages non chargés",
     autostart_failed: "Lancement avec Windows non modifié. Réessaie.",
+    update_menu: "Installer la version {version}",
+    update_installing: "Installation de la version {version}…",
+    update_available: "La version {version} est disponible.",
+    update_install: "Installer",
+    update_failed_title: "Mise à jour non installée",
+    update_failed_message: "Vérifie ta connexion, puis réessaie depuis le menu.",
     key_ctrl: "Ctrl",
     key_alt: "Alt",
     key_shift: "Maj",
@@ -223,6 +235,12 @@ static ENGLISH: Texts = Texts {
     save_blocked_invalid: "Settings not saved. Fix or delete %APPDATA%\\palaswitch\\settings.toml, then restart palaswitch.",
     settings_unreadable_title: "Settings not loaded",
     autostart_failed: "Start with Windows not changed. Try again.",
+    update_menu: "Install version {version}",
+    update_installing: "Installing version {version}…",
+    update_available: "Version {version} is available.",
+    update_install: "Install",
+    update_failed_title: "Update not installed",
+    update_failed_message: "Check your connection, then try again from the menu.",
     key_ctrl: "Ctrl",
     key_alt: "Alt",
     key_shift: "Shift",
@@ -285,6 +303,13 @@ mod tests {
             assert!(texts.shortcut_refused_list.contains("{list}"));
             assert!(texts.settings_active.contains("{name}"));
             assert!(texts.shortcut_used_by.contains("{name}"));
+            for template in [
+                texts.update_menu,
+                texts.update_installing,
+                texts.update_available,
+            ] {
+                assert!(template.contains("{version}"), "{template}");
+            }
         }
     }
 
@@ -338,6 +363,12 @@ mod tests {
                 texts.save_blocked_invalid,
                 texts.settings_unreadable_title,
                 texts.autostart_failed,
+                texts.update_menu,
+                texts.update_installing,
+                texts.update_available,
+                texts.update_install,
+                texts.update_failed_title,
+                texts.update_failed_message,
                 texts.key_ctrl,
                 texts.key_alt,
                 texts.key_shift,
