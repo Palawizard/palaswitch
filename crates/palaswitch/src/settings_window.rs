@@ -32,7 +32,8 @@ use crate::theme::{self, Brushes, ControlKind, Fonts, Palette};
 use crate::win::{self, WindowEvent};
 
 const CLASS_NAME: PCWSTR = w!("palaswitch.settings");
-/// The icon the build script puts in the executable, as resource 1.
+/// The icon the build script puts in the executable, as resource 1
+/// (`ICON_ID` in build.rs).
 const APP_ICON: PCWSTR = PCWSTR(std::ptr::without_provenance(1));
 const EN_CHANGE: u32 = 0x0300;
 
@@ -155,9 +156,7 @@ impl SettingsWindow {
             lpszClassName: CLASS_NAME,
             // SAFETY: loads the standard arrow cursor shared by the system.
             hCursor: unsafe { LoadCursorW(None, IDC_ARROW) }?,
-            // SAFETY: loads the app icon, resource 1 of our own executable;
-            // without it the window keeps the generic icon.
-            hIcon: unsafe { LoadIconW(Some(instance.into()), APP_ICON) }.unwrap_or_default(),
+            hIcon: app_icon(instance.into()),
             ..Default::default()
         };
         let origin = cursor_work_area().map_or(POINT::default(), |area| POINT {
@@ -637,6 +636,16 @@ impl Drop for SettingsWindow {
         }
         PAINT.with(|cell| cell.set(None));
     }
+}
+
+/// The app icon; without it the window keeps the generic icon.
+fn app_icon(
+    instance: windows::Win32::Foundation::HINSTANCE,
+) -> windows::Win32::UI::WindowsAndMessaging::HICON {
+    // SAFETY: loads a resource of our own executable by its id.
+    unsafe { LoadIconW(Some(instance), APP_ICON) }
+        .inspect_err(|error| tracing::warn!(%error, "no app icon in the executable"))
+        .unwrap_or_default()
 }
 
 /// Work area of the monitor under the pointer.
