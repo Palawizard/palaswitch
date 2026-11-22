@@ -122,9 +122,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }));
 
-    let (update_sender, updates) = mpsc::channel();
+    let (worker_sender, worker_updates) = mpsc::channel();
     let worker = Worker::spawn(move |update| {
-        let _ = update_sender.send(update);
+        let _ = worker_sender.send(update);
         doorbell.ring();
     })?;
 
@@ -139,7 +139,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         reset,
         updater,
     };
-    *app.borrow_mut() = Some(App::new(startup, worker, updates, ui_events)?);
+    *app.borrow_mut() = Some(App::new(startup, worker, worker_updates, ui_events)?);
     win::run_message_loop();
 
     // Dropping the app removes the icon at once instead of leaving it until
