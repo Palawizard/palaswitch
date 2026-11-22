@@ -22,7 +22,8 @@ foreach ($dir in @($app, $releases)) {
 Copy-Item 'target\release\palaswitch.exe' $app
 
 # A tray utility gets a Start menu entry only, no desktop shortcut. Each
-# package is full: the exe is small, and no earlier release is needed.
+# package is full: the exe is small, and no earlier release is needed. The
+# installer is the one way to get the app: no portable archive.
 & vpk pack `
     --packId palaswitch `
     --packVersion $version `
@@ -33,6 +34,7 @@ Copy-Item 'target\release\palaswitch.exe' $app
     --packAuthors Palawizard `
     --shortcuts StartMenuRoot `
     --delta None `
+    --noPortable `
     --outputDir $releases
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
