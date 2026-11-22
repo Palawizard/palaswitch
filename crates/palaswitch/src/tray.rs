@@ -303,6 +303,7 @@ impl App {
     fn on_update_event(&mut self, event: UpdateEvent) {
         match event {
             UpdateEvent::Available(version) => self.offer = Offer::Available(version),
+            UpdateEvent::Withdrawn => self.offer = Offer::Nothing,
             UpdateEvent::InstallFailed(version) => {
                 self.offer = Offer::Available(version);
                 win::notify(

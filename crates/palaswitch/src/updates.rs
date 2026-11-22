@@ -39,6 +39,8 @@ pub fn run_installer_hooks() {
 pub enum UpdateEvent {
     /// A newer version can be installed.
     Available(String),
+    /// The version announced is no longer offered: it was taken down.
+    Withdrawn,
     /// The download or the start of the installer failed; the version can
     /// be asked for again.
     InstallFailed(String),
@@ -212,12 +214,15 @@ impl<R> Watch<R> {
     }
 
     /// Checks again in a day, or in an hour after a failure; a version is
-    /// announced the first time it is found.
+    /// announced the first time it is found, and withdrawn when the feed no
+    /// longer has it.
     fn check<F: Feed<Release = R>>(&mut self, feed: &F) -> Option<UpdateEvent> {
         match feed.newer() {
             Ok(newer) => {
                 self.wait = AFTER_CHECK;
-                let (version, release) = newer?;
+                let Some((version, release)) = newer else {
+                    return self.found.take().map(|_| UpdateEvent::Withdrawn);
+                };
                 let known = self
                     .found
                     .as_ref()
@@ -335,23 +340,30 @@ mod tests {
 
     #[test]
     fn a_failed_check_tries_again_sooner_and_keeps_the_version_found() {
-        let feed = Scripted::new(
-            vec![Ok(Some("1.1.0")), Err("offline"), Ok(None)],
-            vec![Ok(())],
-        );
+        let feed = Scripted::new(vec![Ok(Some("1.1.0")), Err("offline")], vec![Ok(())]);
         let mut state = Watch::new(FIRST_CHECK);
 
         let found = state.check(&feed);
         let failed = state.check(&feed);
-        let failed_wait = state.wait;
-        let up_to_date = state.check(&feed);
         let installed = state.install(&feed);
 
         assert_eq!(found, available("1.1.0"));
-        assert_eq!((failed, failed_wait), (None, AFTER_FAILED_CHECK));
-        assert_eq!((up_to_date, state.wait), (None, AFTER_CHECK));
+        assert_eq!((failed, state.wait), (None, AFTER_FAILED_CHECK));
         assert_eq!(installed, Some(UpdateEvent::QuitToInstall));
         assert_eq!(*feed.installed.borrow(), ["1.1.0"]);
+    }
+
+    #[test]
+    fn a_version_taken_down_is_withdrawn_once_and_not_installed() {
+        let feed = Scripted::new(vec![Ok(Some("1.1.0")), Ok(None), Ok(None)], vec![]);
+        let mut state = Watch::new(FIRST_CHECK);
+        state.check(&feed);
+
+        let events = [state.check(&feed), state.check(&feed)];
+
+        assert_eq!(events, [Some(UpdateEvent::Withdrawn), None]);
+        assert_eq!(state.wait, AFTER_CHECK);
+        assert_eq!(state.install(&feed), None);
     }
 
     #[test]
