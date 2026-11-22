@@ -16,6 +16,7 @@ mod shortcut_field;
 mod text;
 mod theme;
 mod tray;
+mod updates;
 mod win;
 mod worker;
 
@@ -35,6 +36,7 @@ use win::HiddenWindow;
 use worker::Worker;
 
 fn main() -> ExitCode {
+    updates::run_installer_hooks();
     // Taken before the log file is opened, so that a second launch never
     // writes to the file of the running instance.
     let instance = match win::lock_single_instance() {

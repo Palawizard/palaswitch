@@ -91,6 +91,13 @@ impl RunKey {
         }
     }
 
+    /// Removes the value and the note of a switch-off, whatever executable
+    /// the value starts: nothing is left behind when the app is uninstalled.
+    pub fn forget(self) -> windows::core::Result<()> {
+        delete_value(self.subkey, self.value)?;
+        delete_value(self.approved_subkey, self.value)
+    }
+
     fn write_command(self, exe: &Path) -> windows::core::Result<()> {
         let subkey = HSTRING::from(self.subkey);
         let value = HSTRING::from(self.value);
@@ -252,6 +259,37 @@ mod tests {
 
         assert!(moved);
         assert!(key.0.is_enabled(exe), "a missing value is not written back");
+    }
+
+    #[test]
+    fn forgetting_removes_the_value_and_the_switch_off() {
+        let key = TestKey::new(
+            r"Software\palaswitch-test-autostart-5",
+            r"Software\palaswitch-test-autostart-5-approved",
+        );
+        let exe = Path::new(r"C:\palaswitch\palaswitch.exe");
+        key.0.set(exe, true).unwrap();
+        let subkey = HSTRING::from(key.0.approved_subkey);
+        let value = HSTRING::from(key.0.value);
+        let off = [3u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        // SAFETY: writes a binary value of the test key from a local buffer.
+        let written = unsafe {
+            RegSetKeyValueW(
+                HKEY_CURRENT_USER,
+                &subkey,
+                &value,
+                windows::Win32::System::Registry::REG_BINARY.0,
+                Some(off.as_ptr().cast::<c_void>()),
+                off.len() as u32,
+            )
+        };
+        written.ok().unwrap();
+
+        key.0.forget().unwrap();
+
+        assert_eq!(key.0.read(), None);
+        assert!(!key.0.turned_off());
+        key.0.forget().unwrap();
     }
 
     #[test]

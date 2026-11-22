@@ -22,6 +22,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi"] }
 # Pinned: the app addresses its tray icon by the uID this version gives it (ADR-002).
 tray-icon = "=0.26.1"
+velopack = "1.2.161"
 windows = "0.62.2"
 
 [workspace.lints.rust]
