@@ -13,6 +13,13 @@ Write-Host "==> palaswitch $version"
 & cargo build -p palaswitch --release --locked
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# A fresh Windows has no Visual C++ runtime: the exe must not need one.
+$exe = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes("$PWD\target\release\palaswitch.exe"))
+if ($exe -match '(?i)vcruntime\d+\.dll|api-ms-win-crt-') {
+    Write-Error "palaswitch.exe needs the Visual C++ runtime ($($Matches[0])): check .cargo\config.toml"
+    exit 1
+}
+
 $app = 'target\pack\app'
 $releases = 'target\pack\releases'
 foreach ($dir in @($app, $releases)) {
