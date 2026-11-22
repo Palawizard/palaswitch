@@ -20,7 +20,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_LSHIFT, VK_MENU, VK_RMENU, VK_SHIFT,
 };
 use windows::Win32::UI::Shell::{
-    NIF_INFO, NIIF_WARNING, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
+    NIF_INFO, NIIF_INFO, NIIF_WARNING, NIM_MODIFY, NOTIFY_ICON_INFOTIP_FLAGS, NOTIFYICONDATAW,
+    Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, CreateWindowExW, DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE,
@@ -349,15 +350,29 @@ pub fn lock_single_instance() -> windows::core::Result<Option<InstanceLock>> {
     Ok(None)
 }
 
-/// Shows a Windows notification from the tray icon whose window is
-/// `tray_window`.
+/// Shows a Windows notification with the warning icon from the tray icon
+/// whose window is `tray_window`.
 pub fn notify(tray_window: *mut c_void, title: &str, message: &str) {
+    show_notification(tray_window, title, message, NIIF_WARNING);
+}
+
+/// Same as [`notify`], with the information icon: nothing went wrong.
+pub fn inform(tray_window: *mut c_void, title: &str, message: &str) {
+    show_notification(tray_window, title, message, NIIF_INFO);
+}
+
+fn show_notification(
+    tray_window: *mut c_void,
+    title: &str,
+    message: &str,
+    icon: NOTIFY_ICON_INFOTIP_FLAGS,
+) {
     let mut data = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: HWND(tray_window),
         uID: TRAY_ICON_ID,
         uFlags: NIF_INFO,
-        dwInfoFlags: NIIF_WARNING,
+        dwInfoFlags: icon,
         ..Default::default()
     };
     copy_truncated(&mut data.szInfoTitle, title);

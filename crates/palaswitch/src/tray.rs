@@ -147,6 +147,14 @@ impl App {
             offer: Offer::Nothing,
         };
         app.show_state();
+        // Before the warnings, which would otherwise be replaced by it.
+        if first_run {
+            win::inform(
+                app.tray.window_handle(),
+                texts.installed_title,
+                texts.installed_message,
+            );
+        }
         if let Some(reset) = &reset {
             let message = match reset {
                 Reset::Unreadable { .. } => texts.settings_unreadable_message,
@@ -173,13 +181,6 @@ impl App {
             );
         }
         app.keep_start_with_windows();
-        if first_run {
-            win::notify(
-                app.tray.window_handle(),
-                texts.installed_title,
-                texts.installed_message,
-            );
-        }
         Ok(app)
     }
 
