@@ -74,6 +74,8 @@ pub struct Startup {
     pub reset: Option<Reset>,
     /// `None` outside an installation.
     pub updater: Option<Updater>,
+    /// First start after the installation: the app says where it is.
+    pub first_run: bool,
 }
 
 impl App {
@@ -88,6 +90,7 @@ impl App {
             settings,
             reset,
             updater,
+            first_run,
         } = startup;
         let status = MenuItem::new("", false, None);
         let settings_item = MenuItem::new(texts.settings_menu, true, None);
@@ -144,6 +147,15 @@ impl App {
             offer: Offer::Nothing,
         };
         app.show_state();
+        // Shown first: a later notification replaces the current one, and
+        // the warnings matter more.
+        if first_run {
+            win::inform(
+                app.tray.window_handle(),
+                texts.installed_title,
+                texts.installed_message,
+            );
+        }
         if let Some(reset) = &reset {
             let message = match reset {
                 Reset::Unreadable { .. } => texts.settings_unreadable_message,

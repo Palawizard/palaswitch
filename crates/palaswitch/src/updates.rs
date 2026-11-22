@@ -1,6 +1,7 @@
 //! Installation and updates, through the Velopack installer and the
 //! releases of the GitHub repository.
 
+use std::cell::Cell;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
@@ -26,8 +27,10 @@ const DOWNLOAD_DEADLINE: Duration = Duration::from_secs(10 * 60);
 /// outside an installation.
 ///
 /// Must run before the single-instance lock: the installer starts the app
-/// while another copy may be running.
-pub fn run_installer_hooks() {
+/// while another copy may be running. Returns whether this is the first
+/// start after the installation.
+pub fn run_installer_hooks() -> bool {
+    let first_run = Cell::new(false);
     VelopackApp::build()
         // A downloaded update is applied when the user asks for it, never
         // by a second launch that only meant to open the settings.
@@ -35,7 +38,9 @@ pub fn run_installer_hooks() {
         .on_before_uninstall_fast_callback(|_| {
             let _ = RUN_KEY.forget();
         })
+        .on_first_run(|_| first_run.set(true))
         .run();
+    first_run.get()
 }
 
 /// What the update thread tells the interface thread.
