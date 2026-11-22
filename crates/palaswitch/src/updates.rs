@@ -197,8 +197,8 @@ impl Updater {
     /// Starts the thread that checks for updates; `None` when the app runs
     /// outside an installation, which has nothing to update.
     pub fn spawn(notify: impl Fn(UpdateEvent) + Send + 'static) -> Option<Self> {
-        // A release candidate is offered the next candidates as well; a
-        // stable version only stable ones.
+        // A release candidate is offered newer candidates and stable
+        // versions; a stable version only newer stable ones.
         let manager = |prerelease| {
             UpdateManager::new(GithubSource::new(REPOSITORY, None, prerelease), None, None)
         };

@@ -79,7 +79,7 @@ Keep `global-hotkey`. The thread lives only while a shortcut is held (a fraction
 
 ### Context
 
-The first install on a clean Windows Sandbox failed: the exe needed `VCRUNTIME140.dll`, which only comes with the Visual C++ redistributable. Velopack can install the redistributable, but that needs administrator rights, which REL-01 rules out. Separately, Velopack's GitHub source sets no network timeout, so a connection left half open (after sleep, behind a captive portal) could hold the update thread forever.
+The first install on a clean Windows Sandbox failed: the exe needed `VCRUNTIME140.dll`, which only comes with the Visual C++ redistributable. Velopack can install the redistributable, but that needs administrator rights, which the installer must not ask for: it installs per user. Separately, Velopack's GitHub source sets no network timeout, so a connection left half open (after sleep, behind a captive portal) could hold the update thread forever.
 
 ### Decision
 
