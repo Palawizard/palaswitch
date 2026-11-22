@@ -16,12 +16,12 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFoc
 use windows::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_PUSHBUTTON, CreateWindowExW,
     DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, GetCursorPos, GetWindowTextW, HMENU, IDC_ARROW,
-    IDCANCEL, IsIconic, IsWindow, LoadCursorW, RegisterClassW, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE,
-    SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT,
-    WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_NOTIFY, WM_SETFONT, WNDCLASSW,
-    WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE, WS_EX_CONTROLPARENT, WS_MINIMIZEBOX, WS_OVERLAPPED,
-    WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    IDCANCEL, IsIconic, IsWindow, LoadCursorW, LoadIconW, RegisterClassW, SW_RESTORE, SW_SHOW,
+    SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW,
+    ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN,
+    WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_NOTIFY,
+    WM_SETFONT, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE, WS_EX_CONTROLPARENT,
+    WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{HSTRING, PCWSTR, w};
 
@@ -32,6 +32,9 @@ use crate::theme::{self, Brushes, ControlKind, Fonts, Palette};
 use crate::win::{self, WindowEvent};
 
 const CLASS_NAME: PCWSTR = w!("palaswitch.settings");
+/// The icon the build script puts in the executable, as resource 1
+/// (`ICON_ID` in build.rs).
+const APP_ICON: PCWSTR = PCWSTR(std::ptr::without_provenance(1));
 const EN_CHANGE: u32 = 0x0300;
 
 // Control ids: a kind in the high bits, the profile sector in the low ones.
@@ -153,6 +156,7 @@ impl SettingsWindow {
             lpszClassName: CLASS_NAME,
             // SAFETY: loads the standard arrow cursor shared by the system.
             hCursor: unsafe { LoadCursorW(None, IDC_ARROW) }?,
+            hIcon: app_icon(instance.into()),
             ..Default::default()
         };
         let origin = cursor_work_area().map_or(POINT::default(), |area| POINT {
@@ -634,6 +638,16 @@ impl Drop for SettingsWindow {
     }
 }
 
+/// The app icon; without it the window keeps the generic icon.
+fn app_icon(
+    instance: windows::Win32::Foundation::HINSTANCE,
+) -> windows::Win32::UI::WindowsAndMessaging::HICON {
+    // SAFETY: loads a resource of our own executable by its id.
+    unsafe { LoadIconW(Some(instance), APP_ICON) }
+        .inspect_err(|error| tracing::warn!(%error, "no app icon in the executable"))
+        .unwrap_or_default()
+}
+
 /// Work area of the monitor under the pointer.
 fn cursor_work_area() -> Option<RECT> {
     let mut cursor = POINT::default();
@@ -703,4 +717,20 @@ fn window_text(control: HWND) -> String {
     // SAFETY: `buffer` is writable and its length is passed along.
     let len = unsafe { GetWindowTextW(control, &mut buffer) };
     String::from_utf16_lossy(&buffer[..len.max(0) as usize])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_app_icon_is_a_resource_of_the_executable() {
+        // SAFETY: null asks for the module of the running executable.
+        let instance = unsafe { GetModuleHandleW(None) }.unwrap();
+
+        // SAFETY: loads resource 1 of our own executable.
+        let icon = unsafe { LoadIconW(Some(instance.into()), APP_ICON) };
+
+        assert!(icon.is_ok_and(|icon| !icon.is_invalid()));
+    }
 }

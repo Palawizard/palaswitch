@@ -39,6 +39,7 @@ Copy-Item 'target\release\palaswitch.exe' $app
     --runtime win-x64 `
     --packTitle palaswitch `
     --packAuthors Palawizard `
+    --icon assets\palaswitch.ico `
     --shortcuts StartMenuRoot `
     --delta None `
     --noPortable `
