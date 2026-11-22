@@ -1,0 +1,19 @@
+# G502 X PLUS through the LIGHTSPEED receiver (USB 046D:C547, device index 1),
+# captured 2026-11-20 with hidapi 2.6.7 by a throwaway program reading both
+# HID++ collections. A profile switch to 2 and back to 1, each as setOnboardMode(1),
+# setCurrentProfile, getCurrentProfile. After the switch to profile 2 the device
+# sent an unsolicited notification (feature index 0x09, function 1, software ID 0)
+# before the getCurrentProfile request.
+TX 11 01 0B 1E 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 0B 1E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+TX 11 01 0B 3E 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 0B 3E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 09 10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+TX 11 01 0B 4E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 0B 4E 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+TX 11 01 0B 1E 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 0B 1E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+TX 11 01 0B 3E 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 0B 3E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+TX 11 01 0B 4E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+RX 11 01 0B 4E 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00

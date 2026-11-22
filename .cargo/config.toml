@@ -1,0 +1,4 @@
+# The C runtime is linked into the exe: a fresh Windows has no Visual C++
+# redistributable, and the app must start without one.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

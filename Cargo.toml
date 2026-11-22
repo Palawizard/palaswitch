@@ -1,0 +1,34 @@
+[workspace]
+resolver = "3"
+members = ["crates/palaswitch", "crates/palaswitch-cli", "crates/palaswitch-device", "crates/palaswitch-hidpp"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+repository = "https://github.com/Palawizard/palaswitch"
+
+[workspace.dependencies]
+ctrlc = "3.5.3"
+embed-manifest = "1.5.1"
+global-hotkey = "0.10.0"
+hidapi = "2.6.7"
+palaswitch-device = { path = "crates/palaswitch-device" }
+palaswitch-hidpp = { path = "crates/palaswitch-hidpp" }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.2.2"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "ansi", "tracing-log"] }
+# Pinned: the app addresses its tray icon by the uID this version gives it (ADR-002).
+tray-icon = "=0.26.1"
+velopack = "1.2.161"
+windows = "0.62.2"
+winresource = "0.1.34"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+undocumented_unsafe_blocks = "deny"
