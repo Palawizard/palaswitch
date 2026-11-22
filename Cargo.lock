@@ -1107,7 +1107,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "palaswitch"
-version = "1.0.0-rc.4"
+version = "1.0.0"
 dependencies = [
  "embed-manifest",
  "global-hotkey",
@@ -1124,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "palaswitch-cli"
-version = "1.0.0-rc.4"
+version = "1.0.0"
 dependencies = [
  "ctrlc",
  "palaswitch-device",
@@ -1135,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "palaswitch-device"
-version = "1.0.0-rc.4"
+version = "1.0.0"
 dependencies = [
  "hidapi",
  "palaswitch-hidpp",
@@ -1144,7 +1144,7 @@ dependencies = [
 
 [[package]]
 name = "palaswitch-hidpp"
-version = "1.0.0-rc.4"
+version = "1.0.0"
 dependencies = [
  "tracing",
 ]
