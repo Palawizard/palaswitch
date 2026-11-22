@@ -4,7 +4,7 @@ palaswitch is a Windows tray app that switches the onboard profile of a Logitech
 
 ![The palaswitch menu open above its tray icon, which shows profile 2; the menu lists three profiles with the active one ticked](docs/images/tray-menu.png)
 
-Version 1.0.0, maintained by one person. Developed and tested with a G502 X PLUS, wired and through its LIGHTSPEED receiver. Other Logitech mice that keep profiles in onboard memory should work, but none has been tried. Made for Windows 10 and 11, tested on Windows 11.
+Stable since version 1.0.0 (November 2026), maintained by one person, MIT licensed. Developed and tested with a G502 X PLUS, wired and through its LIGHTSPEED receiver. Other Logitech mice that keep profiles in onboard memory should work, but none has been tried; with a mouse that has none, the icon shows a crossed-out mouse. Made for Windows 10 and 11, tested on Windows 11. The interface follows the Windows display language, French or English; the screenshots show it in French.
 
 palaswitch only picks which onboard profile is active. Buttons, DPI, lighting and macros are still set in G HUB or Onboard Memory Manager. Close them while palaswitch runs: they talk to the mouse on the same channel.
 
@@ -16,7 +16,7 @@ The installer is not signed, so Windows SmartScreen may stop it with "Windows pr
 
 ### Updates
 
-About a minute after it starts, then once a day, palaswitch asks GitHub Releases whether a newer version exists. This is the only time it goes online. When there is one, the menu shows "Install version 1.2.0" (with the new number), and so does the settings window. Choosing it downloads the update, closes the app and starts the new version.
+About a minute after it starts, then once a day, palaswitch asks GitHub Releases whether a newer version exists. This is the only time it goes online. When there is one, the menu offers "Install version" followed by its number, and so does the settings window. Choosing it downloads the update, closes the app and starts the new version.
 
 ### Uninstall
 
@@ -24,7 +24,7 @@ Open Settings > Apps > Installed apps, find palaswitch and choose Uninstall. Thi
 
 ## Usage
 
-Run `palaswitch.exe`. An icon appears in the notification area with the number of the active profile, or a crossed-out mouse when no mouse answers. Windows may put new icons behind the ^ arrow: drag it onto the taskbar to keep it in sight.
+The installer starts palaswitch; later, start it from the Start menu. An icon appears in the notification area with the number of the active profile, or a crossed-out mouse when no mouse answers. Windows may put new icons behind the ^ arrow: drag it onto the taskbar to keep it in sight.
 
 Click the icon to open the menu: it lists the enabled profiles with the active one ticked. Choose a profile to make it active, Settings to open the settings window, or Quit to close the app. A wireless mouse that has not moved for a few minutes goes to sleep and does not answer: move it, then try again. If a change fails, Windows shows a short notification.
 
@@ -33,8 +33,6 @@ Click the icon to open the menu: it lists the enabled profiles with the active o
 The settings window lists the enabled profiles. Give a profile a name to show it in the menu instead of "Profile 1". To give it a keyboard shortcut, click its shortcut field and press the keys, for example Ctrl+Alt+F1; Escape keeps the previous one and Clear removes it. A shortcut needs Ctrl or Alt, except F13 to F24. Win combinations, combinations Windows uses everywhere (Alt+F4, Alt+Space) and Ctrl+Alt combinations that type a character with AltGr on your keyboard (such as @ or € on French keyboards) are refused. If another program already uses a shortcut, the window says so and keeps the previous one. Shortcuts work in full-screen games; games run as administrator are not covered. Changes are saved at once, in `%APPDATA%\palaswitch\settings.toml`. "Start with Windows" starts the app at sign-in, straight into the notification area. Launching the app while it runs opens the settings window.
 
 With two mice with onboard profiles paired to the same receiver, only the first one is used. Only one copy of the app runs at a time. Logs go to `%LOCALAPPDATA%\palaswitch\logs` (at most 2 MB).
-
-The interface follows the Windows display language: French if Windows is in French, English otherwise.
 
 ## Development
 
