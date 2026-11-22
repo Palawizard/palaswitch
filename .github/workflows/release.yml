@@ -1,0 +1,79 @@
+name: Release
+
+# A version tag (v1.0.0, v1.1.0-rc.1) builds the installer and uploads it as
+# a draft release, published by hand once checked.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install vpk
+        run: dotnet tool install -g vpk --version 1.2.161
+
+      - name: Check the tag against the version
+        id: version
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $metadata = cargo metadata --format-version 1 --no-deps --locked | ConvertFrom-Json
+          $version = ($metadata.packages | Where-Object { $_.name -eq 'palaswitch' }).version
+          if ($env:TAG -ne "v$version") {
+            Write-Error "tag $env:TAG does not match version $version"
+            exit 1
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "prerelease=$($version.Contains('-'))" >> $env:GITHUB_OUTPUT
+
+      - name: Verify
+        run: pwsh -NoProfile -File scripts/verify.ps1
+
+      - name: Pack the installer
+        run: pwsh -NoProfile -File scripts/pack.ps1
+
+      - name: Upload a draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          $options = @(
+            'upload', 'github',
+            '--outputDir', 'target\pack\releases',
+            '--repoUrl', $env:REPO_URL,
+            '--token', $env:GH_TOKEN,
+            '--tag', $env:TAG,
+            '--releaseName', "palaswitch $env:VERSION"
+          )
+          if ($env:PRERELEASE -eq 'True') { $options += '--pre' }
+          & vpk @options
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
