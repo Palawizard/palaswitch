@@ -328,9 +328,12 @@ impl App {
         let Some(updater) = &self.updater else {
             return;
         };
-        updater.install();
-        self.offer = Offer::Installing(version.clone());
-        self.show_offer();
+        if updater.install() {
+            self.offer = Offer::Installing(version.clone());
+            self.show_offer();
+        } else {
+            self.on_update_event(UpdateEvent::InstallFailed(version.clone()));
+        }
     }
 
     /// Shows the update offer in the menu, above the settings entry, and in

@@ -106,12 +106,7 @@ impl Feed for Github {
     type Error = velopack::Error;
 
     fn newer(&self) -> Result<Option<(String, UpdateInfo)>, velopack::Error> {
-        Ok(match self.0.check_for_updates()? {
-            UpdateCheck::UpdateAvailable(info) => {
-                Some((info.TargetFullRelease.Version.clone(), *info))
-            }
-            UpdateCheck::NoUpdateAvailable | UpdateCheck::RemoteIsEmpty => None,
-        })
+        newer_in(self.0.check_for_updates()?)
     }
 
     fn install(&self, release: &UpdateInfo) -> Result<(), velopack::Error> {
@@ -122,6 +117,21 @@ impl Feed for Github {
             true,
             Vec::<String>::new(),
         )
+    }
+}
+
+/// The version a check found. The running version came from a published
+/// release: an empty feed means its files could not be read, not that every
+/// release is gone, so it counts as a failed check.
+fn newer_in(check: UpdateCheck) -> Result<Option<(String, UpdateInfo)>, velopack::Error> {
+    match check {
+        UpdateCheck::UpdateAvailable(info) => {
+            Ok(Some((info.TargetFullRelease.Version.clone(), *info)))
+        }
+        UpdateCheck::NoUpdateAvailable => Ok(None),
+        UpdateCheck::RemoteIsEmpty => Err(velopack::Error::Other(
+            "the release feed is empty".to_owned(),
+        )),
     }
 }
 
@@ -166,10 +176,13 @@ impl Updater {
         }
     }
 
-    pub fn install(&self) {
-        if self.install.send(()).is_err() {
+    /// Returns false when the update thread is gone.
+    pub fn install(&self) -> bool {
+        let sent = self.install.send(()).is_ok();
+        if !sent {
             tracing::error!("the update thread is gone");
         }
+        sent
     }
 }
 
@@ -318,6 +331,31 @@ mod tests {
             installing.settings_line(texts),
             installing.menu_entry(texts)
         );
+    }
+
+    #[test]
+    fn an_empty_feed_is_a_failed_check_and_nothing_newer_is_not() {
+        let mut info = UpdateInfo::default();
+        info.TargetFullRelease.Version = "1.1.0".to_owned();
+
+        let found = newer_in(UpdateCheck::UpdateAvailable(Box::new(info)));
+        let up_to_date = newer_in(UpdateCheck::NoUpdateAvailable);
+        let empty = newer_in(UpdateCheck::RemoteIsEmpty);
+
+        assert_eq!(
+            found.unwrap().map(|(version, _)| version).as_deref(),
+            Some("1.1.0")
+        );
+        assert!(up_to_date.unwrap().is_none());
+        assert!(empty.is_err());
+    }
+
+    #[test]
+    fn asking_a_stopped_thread_to_install_says_so() {
+        let (install, requests) = mpsc::channel();
+        drop(requests);
+
+        assert!(!Updater { install }.install());
     }
 
     fn available(version: &str) -> Option<UpdateEvent> {
